@@ -1,10 +1,13 @@
 ---
 name: viz
 description: Data visualization and inspection skill. Use when user asks to plot, chart, graph, or visualize data from files or marimo notebooks. Also use for DataFrame inspection when user wants to "show", "display", or "see" data structure (columns, dtypes, first N rows). Supports matplotlib/seaborn for plots, marimo notebook extraction, and artifact management in /tmp/viz/.
-allowed-tools: Read, Glob(/tmp/viz/*), Grep(/tmp/viz/*), Bash(python {SKILL_DIR}/scripts/viz_runner.py:*)
+allowed-tools: Read, Write(/tmp/viz/_draft.py), Glob(/tmp/viz/*), Grep(/tmp/viz/*), Bash(rm -f /tmp/viz/_draft.py), Bash(python {SKILL_DIR}/scripts/viz_runner.py:*), Bash(uv run --directory {SKILL_DIR}/scripts python *)
 ---
 
 # Viz Skill: Data Visualization and Inspection
+
+> **CRITICAL: Never use heredocs (`<< 'EOF'`) to pass scripts to viz_runner.py.**
+> Always use the Write tool to create `/tmp/viz/_draft.py`, then pass `--file /tmp/viz/_draft.py` to the runner.
 
 ## Contents
 
@@ -66,7 +69,7 @@ Use when the user wants a **chart, graph, or visual representation**:
 - "Visualize the trend"
 - "Bar chart showing..."
 
-**Action:** Generate matplotlib/seaborn code and pass via stdin.
+**Action:** Generate matplotlib/seaborn code, write to temp file, execute via runner.
 
 ### Ambiguous Requests
 If unclear (e.g., "show me X over time"):
@@ -81,9 +84,7 @@ All artifacts are managed in `/tmp/viz/` via the helper script.
 ### Helper: `viz_runner.py`
 
 ```bash
-python {SKILL_DIR}/scripts/viz_runner.py [--id NAME] [--desc "Description"] << 'EOF'
-<generated script>
-EOF
+python {SKILL_DIR}/scripts/viz_runner.py --file /tmp/viz/_draft.py --id NAME --desc "Description"
 ```
 
 The runner:
@@ -112,15 +113,27 @@ python {SKILL_DIR}/scripts/viz_runner.py --clean  # Remove all files
 
 ## Skill Workflow
 
+**CRITICAL: Do NOT use heredocs (`<< 'EOF'`).** Use the temp file pattern:
+
 1. **Infer data loading**: Generate Python code to load/create the DataFrame using absolute paths
 2. **Generate visualization**: Add matplotlib/seaborn code for the requested plot
-3. **Execute via runner**:
+3. **Write to temp file**: Run `rm -f /tmp/viz/_draft.py` first, then use the Write tool to create `/tmp/viz/_draft.py` with the complete script
+4. **Execute via runner**:
    ```bash
-   python {SKILL_DIR}/scripts/viz_runner.py --id suggested_name --desc "Short description" << 'EOF'
-   <complete script>
-   EOF
+   python {SKILL_DIR}/scripts/viz_runner.py --file /tmp/viz/_draft.py --id suggested_name --desc "Short description"
    ```
-4. **Return to caller**: Report final ID and paths
+   The runner reads the temp file, deletes it, then writes the final script to `/tmp/viz/<id>.py`.
+5. **Return to caller**: Report final ID and paths
+
+### Example Tool Sequence
+
+```
+1. Bash tool  → rm -f /tmp/viz/_draft.py (delete stale draft if present)
+2. Write tool → /tmp/viz/_draft.py (complete Python script)
+3. Bash tool  → python viz_runner.py --file /tmp/viz/_draft.py --id my_plot --desc "..."
+```
+
+**Why no heredocs?** Heredocs clutter the console output and require extra permissions. The temp file pattern is cleaner.
 
 ### Important: Do NOT Auto-Read PNGs
 
@@ -143,9 +156,9 @@ open /tmp/viz/pop_bar.png  # macOS
 3. Execute with a new ID (e.g., `pop_bar_2`)
 
 ### Regenerating a Plot
-Run the saved script directly (no `viz_runner.py` needed):
+Run the saved script using the viz skill's Python environment:
 ```bash
-python /tmp/viz/pop_bar.py
+uv run --directory {SKILL_DIR}/scripts python /tmp/viz/pop_bar.py
 ```
 
 The script contains the hardcoded savefig path, so it overwrites the existing PNG.

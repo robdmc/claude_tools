@@ -783,8 +783,11 @@ def main():
     # Handle standalone script mode
     if args.script_file:
         try:
-            with open(args.script_file, 'r') as f:
+            file_path = Path(args.script_file)
+            with open(file_path, 'r') as f:
                 script_content = f.read()
+            # Delete temp file after reading (like scribe pattern)
+            file_path.unlink(missing_ok=True)
         except Exception as e:
             print(f"error: Could not read script file: {e}", file=sys.stderr)
             sys.exit(1)
