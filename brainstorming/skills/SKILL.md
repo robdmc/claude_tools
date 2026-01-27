@@ -63,11 +63,14 @@ This is where AI excels. Generate many options freely:
 
 1. **Defer ALL judgment** - Never say "but", only "and"
 2. **Go for quantity** - Generate 8-15 ideas minimum, including wild ones
-3. **Use Socratic probes** to surface hidden assumptions:
+3. **Number all ideas** for easy reference (idea #1, idea #2, etc.)
+4. **Use Socratic probes** to surface hidden assumptions:
    - "What are you assuming here?"
    - "What if that weren't true?"
    - "What would happen if...?"
-4. **Build on each idea** before moving to the next
+5. **Build on each idea** before moving to the next
+6. **Don't rush to Phase 3** - Dwell in divergence; more raw material means better outcomes
+7. **Always invite user contribution** before converging - their ideas matter
 
 **Optional: Parallel Perspective Agents**
 
@@ -82,6 +85,59 @@ When the user requests "diverse perspectives", "different viewpoints", or "multi
 To spawn agents, use the Task tool with `subagent_type: "general-purpose"` and include the agent's instructions from their respective files in the prompt. Run all three in parallel for efficiency.
 
 After agents return, synthesize the best ideas from all three perspectives.
+
+**Collaborative Ideation Loop**
+
+After generating initial ideas (and optionally gathering agent perspectives), shift into collaborative mode. The user has domain knowledge and creative instincts - draw them out.
+
+**The Loop:**
+1. Present your ideas (numbered for reference)
+2. Invite contribution: "What does this spark for you? Any ideas from your experience?"
+3. When user shares an idea, respond with ONE of:
+   - **Riff**: "Building on that - what if we also [variation]?"
+   - **Callback**: "That connects nicely with idea #3 - together they could [synthesis]"
+   - **Synthesis**: "Combining your idea with the earlier ones, I see a pattern: [new framing]"
+4. After responding, invite again: "What else? Or shall we start narrowing down?"
+
+**Rules for the loop:**
+- Stay in divergence mode - no critiquing, no "but"
+- Match the user's energy - if they're generating freely, keep pace
+- Reference ideas by number to build connections
+- Offer to summarize the idea pool periodically ("We have 12 ideas now - want a quick recap?")
+- Only exit when user explicitly signals readiness ("let's narrow down", "I think we have enough", etc.)
+
+**Prompts to invite contribution:**
+- "What ideas does this spark for you?"
+- "Any approaches you've seen work in similar situations?"
+- "What would you try if resources weren't a constraint?"
+- "Is there an angle we haven't explored yet?"
+
+**Example exchange:**
+```
+Claude: [Presents 8 initial ideas, numbered #1-#8]
+        What does this spark for you? Any ideas from your experience?
+
+User: What about partnering with universities? They have research capacity.
+
+Claude: Nice - that opens up a whole channel. Riffing on that: what if we
+        structured it as a sponsored research program where we get first
+        access to findings? That pairs with idea #4 (the pilot program) -
+        universities could be the pilot cohort. That's idea #9.
+
+        What else comes to mind? Or ready to start narrowing?
+
+User: I like the university angle. What about community colleges too?
+
+Claude: Yes - community colleges have workforce development mandates, so
+        there's built-in alignment. And they're often more agile than
+        research universities. That's idea #10 now.
+
+        We're at 10 ideas. Want a quick recap, or keep going?
+
+User: Let's narrow down.
+
+Claude: [Moves to Phase 3]
+```
 
 ### Phase 3: Converge - Evaluate & Select
 
@@ -175,5 +231,6 @@ Claude: Here's your launch strategy summary. Would you like me to save this
 - **One question at a time** - Don't overwhelm with multiple questions
 - **Prefer structured choices** - Use AskUserQuestion when options are clear
 - **Defer judgment in Phase 2** - Generate freely, evaluate later
+- **Invite user ideas before converging** - The user has domain expertise; draw it out
 - **Lead with recommendations in Phase 3** - Don't be wishy-washy
 - **Always offer to save** - But ask first, don't assume
