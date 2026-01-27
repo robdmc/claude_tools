@@ -1,6 +1,6 @@
 # Viz
 
-Data visualization and inspection skill for Claude Code. Create matplotlib/seaborn plots from data files or marimo notebooks, or inspect DataFrames to see their structure and contents.
+Data visualization and inspection skill for Claude Code. Create matplotlib/seaborn plots from data files or marimo notebooks, inspect DataFrames, and manage a library of visualizations.
 
 ## Features
 
@@ -8,6 +8,8 @@ Data visualization and inspection skill for Claude Code. Create matplotlib/seabo
 - **Data Inspection**: View DataFrame shape, columns, dtypes, and sample rows
 - **Marimo Integration**: Extract variables from marimo notebooks via dependency analysis
 - **Artifact Management**: Plots saved to `.viz/` with metadata and self-contained scripts
+- **ID Watermarks**: Plots include a subtle ID watermark for easy tracking during iteration
+- **Refinement**: Modify existing plots while preserving originals with auto-incrementing IDs
 
 ## Usage
 
@@ -25,7 +27,7 @@ Plot the forecast data from my marimo notebook at /path/to/forecast.nb.py
 
 ### Inspecting Data
 
-Ask Claude to show you the data:
+Ask Claude to show you the data structure:
 
 ```
 Show me the first 10 rows of the dataframe in /path/to/notebook.nb.py
@@ -34,6 +36,27 @@ Show me the first 10 rows of the dataframe in /path/to/notebook.nb.py
 ```
 What columns are in the forecast table?
 ```
+
+### Viewing Existing Plots
+
+Open plots in your image viewer:
+
+```
+Show me all my plots
+Open the sine_wave plot
+Compare forecast_v1 and forecast_v2
+```
+
+### Refining Plots
+
+Modify existing plots (originals are preserved):
+
+```
+Regenerate pop_bar with a different color scheme
+Update the forecast plot to use log scale
+```
+
+When refining, the skill reads the existing script and creates a new version (e.g., `pop_bar_2`).
 
 ### Managing Artifacts
 
@@ -47,10 +70,16 @@ Clean up all artifacts:
 python viz_runner.py --clean
 ```
 
-Regenerate a plot (after data changes):
+Re-run a plot script directly:
 ```bash
 python .viz/my_plot.py
 ```
+
+## ID Watermarks
+
+Plots include a small, semi-transparent watermark showing the plot ID in the bottom-right corner. This helps track plots during iterative development.
+
+For clean/production versions, ask for "no watermark", "clean version", or "presentation quality" and Claude will omit the watermark.
 
 ## How It Works
 
@@ -58,7 +87,7 @@ python .viz/my_plot.py
 2. **For marimo notebooks**: The skill parses the notebook AST, resolves dependencies to find required cells, assembles a pruned notebook with the plotting code, and executes it
 
 All plots are saved to `.viz/` with:
-- `<id>.png` - The rendered plot
+- `<id>.png` - The rendered plot (with ID watermark by default)
 - `<id>.py` - Self-contained script (can be re-run directly)
 - `<id>.json` - Metadata (description, timestamp, source info)
 
