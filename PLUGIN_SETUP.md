@@ -16,13 +16,17 @@ claude plugin marketplace add anthropics/claude-plugins-official
 ## Install Recommended Plugins
 
 ```bash
+claude plugin install context7@claude-plugins-official
 claude plugin install document-skills@anthropic-agent-skills
+claude plugin install plugin-dev@claude-plugins-official
 claude plugin install pyright-lsp@claude-plugins-official
 ```
 
 | Plugin | Description |
 |--------|-------------|
+| **context7** | Up-to-date documentation lookup for libraries and frameworks |
 | **document-skills** | Document creation and manipulation (PDF, PPTX, XLSX, etc.) |
+| **plugin-dev** | Skill and agent development tools (`/skill-creator`, `/agent-development`) |
 | **pyright-lsp** | Python language server for type checking and intellisense |
 
 ## Verification
