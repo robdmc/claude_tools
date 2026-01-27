@@ -2,7 +2,7 @@
 name: scribe
 description: Maintains a narrative log of exploratory work with file archives. Capabilities: (1) Log entries with propose-confirm flow, (2) Archive files linked to entries, (3) Restore archived files, (4) Query past work by time or topic, (5) Link related entries for thread tracking. Activates when user addresses "scribe" directly (e.g., "hey scribe, log this", "scribe, save this notebook", "scribe, what did we try yesterday?") or uses `/scribe` commands.
 disable-model-invocation: true
-allowed-tools: Read, Write, Bash(python:*), Bash(mkdir:*), Bash(git status*), Glob, Grep
+allowed-tools: Read, Write, Glob, Grep, Bash(python *), Bash(python3 *), Bash(mkdir *), Bash(git status*), Bash(git diff --no-ext-diff*)
 argument-hint: [log | save <file> | restore <asset> | ask <question>]
 ---
 
@@ -56,13 +56,13 @@ Follow these steps when logging:
 1. **Assess** — Check conversation context, recent logs, `git status`
 2. **Propose** — Draft entry, offer optional file archives
 3. **Confirm** — Wait for user approval
-4. **Write** — `python {SKILL_DIR}/scripts/entry.py write --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`
+4. **Write** — Create draft at `/tmp/scribe_entry_${CLAUDE_SESSION_ID}.md` (always overwrite, never edit), then run `python {SKILL_DIR}/scripts/entry.py write --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`
 
 **Shortcut:** For "quick log", write directly without proposing.
 
 ### Entry Format
 
-Write to `/tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`:
+Always create a fresh draft file (overwrite any existing) at `/tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`:
 ```markdown
 ## Brief title here
 
