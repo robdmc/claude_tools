@@ -56,13 +56,13 @@ Follow these steps when logging:
 1. **Assess** — Check conversation context, recent logs, `git status`
 2. **Propose** — Draft entry, offer optional file archives
 3. **Confirm** — Wait for user approval
-4. **Write** — Create draft at `/tmp/scribe_entry_${CLAUDE_SESSION_ID}.md` (always overwrite, never edit), then run `python {SKILL_DIR}/scripts/entry.py write --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`
+4. **Write** — Run `rm -f /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`, then create draft at `/tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`, then run `python {SKILL_DIR}/scripts/entry.py write --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`
 
 **Shortcut:** For "quick log", write directly without proposing.
 
 ### Entry Format
 
-Always create a fresh draft file (overwrite any existing) at `/tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`:
+Always delete then create the draft file at `/tmp/scribe_entry_${CLAUDE_SESSION_ID}.md` (use `rm -f` first to avoid diffs):
 ```markdown
 ## Brief title here
 
