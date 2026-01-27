@@ -29,11 +29,14 @@ For the best experience, install the recommended Claude Code plugins. See [PLUGI
 
 ## Installation
 
-Use the built-in `/install` command to install tools from this repository:
+Use the built-in `/install` and `/uninstall` commands to manage tools from this repository:
 
 ```
 /install        # Interactive installation wizard
 /install list   # Show available tools
+
+/uninstall      # Interactive uninstall wizard
+/uninstall list # Show installed tools
 ```
 
 The wizard will prompt you to choose:

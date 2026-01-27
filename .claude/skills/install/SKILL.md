@@ -30,7 +30,21 @@ This shows all tools in the repository with their components:
 - **agents/** - Agent definition markdown files
 - **commands/** - Legacy command markdown files
 
-### Step 2: Gather User Choices
+### Step 2: Present Numbered Tool List
+
+Display the tools as a numbered list for the user:
+
+```
+Available tools:
+  1. brainstorm    - skills + 3 agents
+  2. duckdb_sql    - skills with references
+  3. implement     - skills + task-worker agent
+  4. presentation  - skills with scripts/references
+  5. scribe        - skills with scripts/references
+  6. viz           - skills with scripts/references
+```
+
+### Step 3: Gather User Choices
 
 Use AskUserQuestion to get:
 
@@ -43,16 +57,17 @@ Use AskUserQuestion to get:
    - Symlink - Links to source (updates automatically, requires repo access)
 
 3. **Tools to install:**
-   - Present discovered tools as multi-select checkboxes
+   - Ask the user to enter tool numbers (e.g., "1,3,5" or "all")
+   - Parse the response and map numbers back to tool names
 
-### Step 3: Execute Installation
+### Step 4: Execute Installation
 
 Run the installation with user choices:
 ```bash
 python {SKILL_DIR}/install.py --install --target <global|project> --mode <copy|symlink> --tools <tool1,tool2,...>
 ```
 
-### Step 4: Report Results
+### Step 5: Report Results
 
 Show the user what was installed:
 - Skills installed to `{target}/skills/{tool_name}/`
@@ -72,26 +87,25 @@ Show the user what was installed:
 ```
 User: /install
 
-Claude: Let me discover available tools...
+Claude: Available tools:
+  1. brainstorm    - skills + 3 agents
+  2. duckdb_sql    - skills with references
+  3. implement     - skills + task-worker agent
+  4. presentation  - skills with scripts/references
+  5. scribe        - skills with scripts/references
+  6. viz           - skills with scripts/references
 
-[Runs: python install.py --list]
+[Uses AskUserQuestion for target and mode]
+[Asks user: "Enter tool numbers to install (e.g., 1,3,5 or 'all'):"]
 
-Available tools:
-  brainstorming/ [skills, agents]
-  scribe/ [skills with scripts]
-  viz/ [skills with scripts]
-  duckdb_sql/ [skills]
+User selects: Global, Symlink, enters "1,6"
 
-[Uses AskUserQuestion for target, mode, and tool selection]
+Claude: Installing brainstorm and viz...
 
-User selects: Global, Symlink, brainstorming + viz
-
-Claude: Installing...
-
-[Runs: python install.py --install --target global --mode symlink --tools brainstorming,viz]
+[Runs: python install.py --install --target global --mode symlink --tools brainstorm,viz]
 
 Installation complete!
-  Linked skills/brainstorming/ -> /path/to/repo/brainstorming/skills
+  Linked skills/brainstorm/ -> /path/to/repo/brainstorm/skills
   Linked skills/viz/ -> /path/to/repo/viz/skills
   Linked agents/pragmatic-explorer.md
   Linked agents/creative-challenger.md
