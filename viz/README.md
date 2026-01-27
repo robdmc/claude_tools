@@ -7,7 +7,7 @@ Data visualization and inspection skill for Claude Code. Create matplotlib/seabo
 - **Visualization**: Generate publication-quality plots with matplotlib and seaborn
 - **Data Inspection**: View DataFrame shape, columns, dtypes, and sample rows
 - **Marimo Integration**: Extract variables from marimo notebooks via dependency analysis
-- **Artifact Management**: Plots saved to `/tmp/viz/` with metadata and self-contained scripts
+- **Artifact Management**: Plots saved to `.viz/` with metadata and self-contained scripts
 
 ## Usage
 
@@ -49,7 +49,7 @@ python viz_runner.py --clean
 
 Regenerate a plot (after data changes):
 ```bash
-python /tmp/viz/my_plot.py
+python .viz/my_plot.py
 ```
 
 ## How It Works
@@ -57,7 +57,7 @@ python /tmp/viz/my_plot.py
 1. **For standalone data**: Claude generates a complete matplotlib script, injects `savefig()`, executes it, and returns the paths
 2. **For marimo notebooks**: The skill parses the notebook AST, resolves dependencies to find required cells, assembles a pruned notebook with the plotting code, and executes it
 
-All plots are saved to `/tmp/viz/` with:
+All plots are saved to `.viz/` with:
 - `<id>.png` - The rendered plot
 - `<id>.py` - Self-contained script (can be re-run directly)
 - `<id>.json` - Metadata (description, timestamp, source info)

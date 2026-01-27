@@ -528,9 +528,9 @@ class TestInjectSavefig:
             plt.show()
         ''').strip()
 
-        result = inject_savefig(script, "/tmp/viz/test.png")
+        result = inject_savefig(script, ".viz/test.png")
 
-        assert "plt.savefig('/tmp/viz/test.png'" in result
+        assert "plt.savefig('.viz/test.png'" in result
         assert result.index("savefig") < result.index("show")
 
     def test_with_indentation(self):
@@ -542,7 +542,7 @@ class TestInjectSavefig:
                 plt.show()
         ''').strip()
 
-        result = inject_savefig(script, "/tmp/viz/test.png")
+        result = inject_savefig(script, ".viz/test.png")
 
         # savefig should be indented like the plt.show()
         lines = result.split("\n")
@@ -560,9 +560,9 @@ class TestInjectSavefig:
             plt.plot([1, 2, 3])
         ''').strip()
 
-        result = inject_savefig(script, "/tmp/viz/test.png")
+        result = inject_savefig(script, ".viz/test.png")
 
-        assert "plt.savefig('/tmp/viz/test.png'" in result
+        assert "plt.savefig('.viz/test.png'" in result
 
     def test_multiple_shows(self):
         """Multiple plt.show() calls each get savefig."""
@@ -574,7 +574,7 @@ class TestInjectSavefig:
             plt.show()
         ''').strip()
 
-        result = inject_savefig(script, "/tmp/viz/test.png")
+        result = inject_savefig(script, ".viz/test.png")
 
         # Both shows should have savefig before them
         assert result.count("savefig") == 2
@@ -587,7 +587,7 @@ class TestInjectSavefig:
             pyplot.show()
         ''').strip()
 
-        result = inject_savefig(script, "/tmp/viz/test.png")
+        result = inject_savefig(script, ".viz/test.png")
 
         assert "plt.savefig" in result
 
@@ -831,17 +831,8 @@ class TestValidatePythonEnv:
 class TestGetPythonCommand:
     """Tests for get_python_command."""
 
-    def test_env_var_override(self, tmp_path, monkeypatch):
-        """VIZ_PYTHON_CMD env var takes precedence (no validation)."""
-        monkeypatch.setenv("VIZ_PYTHON_CMD", "/custom/python -u")
-
-        result = get_python_command(tmp_path)
-
-        assert result == ["/custom/python", "-u"]
-
     def test_uv_project_detected_with_validation(self, tmp_path, monkeypatch):
         """Detect uv project and use 'uv run --directory ... python' when validated."""
-        monkeypatch.delenv("VIZ_PYTHON_CMD", raising=False)
         (tmp_path / "pyproject.toml").write_text("[project]\nname='test'")
 
         # Mock validate_python_env to return True for project cmd
@@ -856,7 +847,6 @@ class TestGetPythonCommand:
 
     def test_uv_project_fails_validation_falls_to_system(self, tmp_path, monkeypatch):
         """If project env fails validation, try system Python."""
-        monkeypatch.delenv("VIZ_PYTHON_CMD", raising=False)
         (tmp_path / "pyproject.toml").write_text("[project]\nname='test'")
 
         call_count = [0]
@@ -876,8 +866,6 @@ class TestGetPythonCommand:
 
     def test_fallback_to_viz_skill_env(self, tmp_path, monkeypatch):
         """Fall back to viz skill's environment when all else fails."""
-        monkeypatch.delenv("VIZ_PYTHON_CMD", raising=False)
-
         # Mock all validation to fail
         def mock_validate(cmd, required_module="matplotlib"):
             return False
@@ -896,7 +884,6 @@ class TestGetPythonCommand:
 
     def test_system_python_used_when_no_project(self, tmp_path, monkeypatch):
         """System Python used when no project markers and it validates."""
-        monkeypatch.delenv("VIZ_PYTHON_CMD", raising=False)
         # No pyproject.toml or uv.lock in tmp_path
 
         def mock_validate(cmd, required_module="matplotlib"):
@@ -1519,8 +1506,8 @@ class TestEdgeCases:
         """Multiple inject_savefig calls don't duplicate."""
         script = "import matplotlib.pyplot as plt\nplt.show()"
 
-        result1 = inject_savefig(script, "/tmp/test.png")
-        result2 = inject_savefig(result1, "/tmp/test.png")
+        result1 = inject_savefig(script, ".viz/test.png")
+        result2 = inject_savefig(result1, ".viz/test.png")
 
         # Second injection shouldn't add another savefig before the existing one
         # (the pattern won't match because savefig is now before show)

@@ -8,10 +8,10 @@ Usage:
     echo "script content" | python viz_runner.py --id my_plot
 
 The runner:
-1. Creates /tmp/viz/ if it doesn't exist
+1. Creates .viz/ if it doesn't exist (and adds to .gitignore)
 2. Ensures ID uniqueness (appends _2, _3, etc. if needed)
 3. Injects plt.savefig() before any plt.show() call
-4. Writes the modified script to /tmp/viz/<id>.py
+4. Writes the modified script to .viz/<id>.py
 5. Executes the script
 6. Prints the final ID and paths to stdout
 """
@@ -30,7 +30,9 @@ from typing import Protocol
 # Import marimo handler (all marimo-specific code lives there)
 from marimo_handler import MarimoHandler
 
-VIZ_DIR = Path("/tmp/viz")
+# Resolve to absolute path immediately so it works even when subprocess
+# runs with a different cwd (e.g., uv run --directory changes cwd)
+VIZ_DIR = Path(".viz").resolve()
 
 
 # ============================================================================
@@ -419,8 +421,18 @@ def get_python_command(cwd: Path | None = None) -> list[str]:
 
 
 def ensure_viz_dir():
-    """Create /tmp/viz/ if it doesn't exist."""
+    """Create .viz/ if it doesn't exist and ensure it's gitignored."""
     VIZ_DIR.mkdir(parents=True, exist_ok=True)
+
+    # Add .viz/ to .gitignore if not already present
+    gitignore = Path(".gitignore")
+    if gitignore.exists():
+        content = gitignore.read_text()
+        if ".viz/" not in content:
+            with gitignore.open("a") as f:
+                f.write("\n.viz/\n")
+    else:
+        gitignore.write_text(".viz/\n")
 
 
 def get_unique_id(suggested_id: str | None) -> str:
@@ -582,16 +594,15 @@ def format_module_error(stderr: str, python_cmd: list[str]) -> str | None:
 ╔══════════════════════════════════════════════════════════════════════════════╗
 ║  MISSING MODULE: {module:<59} ║
 ╠══════════════════════════════════════════════════════════════════════════════╣
-║  The viz skill's Python environment is missing required packages.            ║
+║  The Python environment is missing required packages.                        ║
 ║                                                                              ║
 ║  To fix this, either:                                                        ║
 ║                                                                              ║
-║  1. Restart Claude Code with the correct Python environment activated:       ║
-║     $ source /path/to/your/venv/bin/activate && claude                       ║
+║  1. Add the package to your project's pyproject.toml:                        ║
+║     $ uv add {module:<64} ║
 ║                                                                              ║
-║  2. Or configure viz_runner.py to use a different Python command:            ║
-║     Set VIZ_PYTHON_CMD environment variable, e.g.:                           ║
-║     $ export VIZ_PYTHON_CMD="uv run python"                                  ║
+║  2. Or activate the correct Python environment before running Claude:        ║
+║     $ source /path/to/your/venv/bin/activate && claude                       ║
 ║                                                                              ║
 ║  Python command: {cmd_str:<57} ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -773,7 +784,7 @@ def main():
     parser.add_argument("--id", dest="suggested_id", help="Suggested ID for the visualization")
     parser.add_argument("--desc", dest="description", help="Description of the visualization")
     parser.add_argument("--file", dest="script_file", help="Path to script file (alternative to stdin)")
-    parser.add_argument("--clean", action="store_true", help="Remove all files from /tmp/viz/")
+    parser.add_argument("--clean", action="store_true", help="Remove all files from .viz/")
     parser.add_argument("--list", action="store_true", help="List all visualizations")
 
     # Marimo notebook support

@@ -4,7 +4,7 @@ The viz skill can extract data from marimo notebooks and generate plots without 
 
 ## How It Works
 
-1. **Copy notebook** to `/tmp/viz/<id>.py`
+1. **Copy notebook** to `.viz/<id>.py`
 2. **Analyze dependencies** to identify cells needed for target data
 3. **Prune unneeded cells** from the copied notebook
 4. **Inject plotting code** as a new cell at the end
@@ -127,6 +127,6 @@ EOF
 ## Important Notes
 
 - The **original notebook is never modified** (read-only access)
-- All work happens on a copy in `/tmp/viz/`
+- All work happens on a copy in `.viz/`
 - The script runs with the notebook's directory as cwd, so relative file paths work
 - Uses `uv run python` if the notebook directory contains `pyproject.toml` or `uv.lock`
