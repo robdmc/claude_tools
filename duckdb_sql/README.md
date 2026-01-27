@@ -7,25 +7,10 @@ A Claude Code skill for generating DuckDB SQL queries across DuckDB databases, C
 This skill helps you:
 - Generate SQL queries from plain English questions
 - Explore and understand data structures in .ddb, .csv, and .parquet files
-- Modify existing SQL queries
+- Modify and review existing SQL queries
 - Document your data sources with an evolving data dictionary
 
-## Installation
-
-### Option 1: Symlink into a specific project
-
-```bash
-cd /path/to/your/project
-mkdir -p .claude/skills
-ln -s /path/to/duckdb-sql .claude/skills/duckdb-sql
-```
-
-### Option 2: Symlink into global skills
-
-```bash
-mkdir -p ~/.claude/skills
-ln -s /path/to/duckdb-sql ~/.claude/skills/duckdb-sql
-```
+Queries are **display-only by default** - you review and run them yourself. Execution only happens when explicitly requested.
 
 ## Prerequisites
 
@@ -65,10 +50,14 @@ When you first use the skill in a project, it will:
 - "What columns does the customers table have?"
 - "Where is order total stored?"
 
-**Query Generation:**
+**Query Generation** (displays query plan first, then SQL after approval):
 - "Show me all customers who placed orders in March"
 - "Count orders by status"
 - "Join customers with orders to see purchase history"
+
+**Execution** (only when explicitly requested):
+- "Run this query"
+- "Execute it and show me the results"
 
 **Modifications:**
 - "Add a date filter to this query"
