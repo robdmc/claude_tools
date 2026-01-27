@@ -11,8 +11,13 @@ Each tool is a top-level directory with this structure:
 ```
 tool_name/
 ├── README.md              # Human documentation (required)
+├── CLAUDE.md              # Development/maintenance instructions for Claude (required)
 ├── skills/                # Skill definitions
-│   └── SKILL.md           # Skill for Claude (required)
+│   ├── SKILL.md           # Skill for Claude (required)
+│   ├── scripts/           # Executable scripts (optional)
+│   │   └── example.sh
+│   └── references/        # Reference documentation (optional)
+│       └── detailed-guide.md
 └── agents/                # Agent definitions (optional)
     └── worker-name.md     # Agent protocols
 ```
@@ -26,12 +31,29 @@ Each tool needs a human-readable README at the root explaining:
 
 This is for humans browsing the repo, not for Claude.
 
+### CLAUDE.md
+
+Each tool needs a CLAUDE.md file at the root with development instructions for Claude sessions working on the tool. This should include:
+- How to navigate the skill's file structure
+- Key design decisions to preserve
+- Instructions for making changes
+- Testing procedures
+- Integration points with other skills
+
 ### Skills
 
 Use the `/skill-creator` skill for guidance on writing SKILL.md files, including:
 - YAML frontmatter fields
 - System prompt design
 - Scripts, references, and assets
+
+#### scripts/
+
+Executable code (Python/Bash/etc.) for tasks that require deterministic reliability or are repeatedly rewritten. Scripts can be referenced from SKILL.md using `{SKILL_DIR}/scripts/script_name.sh`.
+
+#### references/
+
+Documentation and reference material loaded into context as needed. Keep SKILL.md lean by moving detailed examples, syntax references, and edge cases into reference files.
 
 ### Agents
 
