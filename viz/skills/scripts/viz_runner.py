@@ -162,6 +162,7 @@ def run_plot(
     description: str | None = None,
     source_path: Path | None = None,
     target_var: str | None = None,
+    watermark: bool = True,
     **handler_kwargs,
 ) -> tuple[bool, str, Path | None]:
     """
@@ -174,6 +175,7 @@ def run_plot(
         description: Optional description
         source_path: Optional source file (for MarimoHandler, etc.)
         target_var: Optional target variable (for MarimoHandler, etc.)
+        watermark: Whether to add ID watermark (default True)
         **handler_kwargs: Additional handler-specific options
 
     Returns:
@@ -196,8 +198,8 @@ def run_plot(
     script_path = VIZ_DIR / f"{viz_id}.py"
     png_path = VIZ_DIR / f"{viz_id}.png"
 
-    # Inject savefig
-    script_content = inject_savefig(script_content, str(png_path))
+    # Inject watermark and savefig
+    script_content = inject_savefig(script_content, str(png_path), viz_id=viz_id, watermark=watermark)
     script_path.write_text(script_content)
 
     # Execute with fallback chain - retry on module errors
@@ -446,15 +448,55 @@ def get_unique_id(suggested_id: str | None) -> str:
     return f"{base_id}_{counter}"
 
 
-def inject_savefig(script: str, png_path: str) -> str:
+def inject_watermark(script: str, viz_id: str) -> str:
+    """
+    Inject watermark showing viz ID in bottom-right corner.
+
+    The watermark uses figure coordinates so it works regardless of
+    plot type, axes configuration, or data ranges.
+    """
+    watermark_line = (
+        f"plt.gcf().text(0.99, 0.01, '{viz_id}', fontsize=8, color='gray', "
+        f"alpha=0.5, ha='right', va='bottom', transform=plt.gcf().transFigure)"
+    )
+
+    # Pattern to match plt.show() or pyplot.show()
+    pattern = r'^(\s*)(plt\.show\(\)|pyplot\.show\(\))'
+
+    def replacement(match):
+        indent = match.group(1)
+        show_call = match.group(2)
+        return f"{indent}{watermark_line}\n{indent}{show_call}"
+
+    modified = re.sub(pattern, replacement, script, flags=re.MULTILINE)
+
+    # If no plt.show() was found, append watermark at the end
+    if modified == script:
+        if 'matplotlib' in script or 'plt' in script:
+            modified = script.rstrip() + f"\n\n# Viz watermark (auto-injected)\n{watermark_line}\n"
+
+    return modified
+
+
+def inject_savefig(script: str, png_path: str, viz_id: str | None = None, watermark: bool = True) -> str:
     """
     Inject plt.savefig() before plt.show() calls.
+
+    Args:
+        script: The Python script content
+        png_path: Path where the PNG should be saved
+        viz_id: Optional visualization ID for watermark
+        watermark: Whether to add ID watermark (default True)
 
     Handles various patterns:
     - plt.show()
     - pyplot.show()
     - fig.show() (less common but possible)
     """
+    # First inject watermark if enabled (must be before savefig to appear in PNG)
+    if watermark and viz_id:
+        script = inject_watermark(script, viz_id)
+
     savefig_line = f"plt.savefig('{png_path}', dpi=150, bbox_inches='tight')"
 
     # Pattern to match plt.show() or pyplot.show() with optional whitespace
@@ -674,6 +716,7 @@ def handle_marimo_plot(args: argparse.Namespace, plot_code: str) -> int:
         source_path=notebook_path,
         target_var=args.target_var,
         target_line=args.target_line,
+        watermark=not args.no_watermark,
     )
 
     # Print human-readable output
@@ -701,6 +744,7 @@ def handle_standalone_script(args: argparse.Namespace, script_content: str) -> i
         plot_code=script_content,
         viz_id=final_id,
         description=args.description,
+        watermark=not args.no_watermark,
     )
 
     # Print human-readable output
@@ -739,6 +783,7 @@ def main():
     parser.add_argument("--target-line", dest="target_line", type=int, help="Line number for intermediate state capture")
     parser.add_argument("--show", action="store_true", help="Show mode: print dataframe info to console instead of plotting")
     parser.add_argument("--rows", dest="rows", type=int, default=5, help="Number of rows to display in show mode (default: 5)")
+    parser.add_argument("--no-watermark", dest="no_watermark", action="store_true", help="Disable ID watermark (for presentation/production)")
 
     args = parser.parse_args()
 

@@ -77,6 +77,14 @@ If unclear (e.g., "show me X over time"):
 - If the request is about structure/columns/rows → inspection
 - When in doubt, use `--show` first (it's cheaper), then offer to plot
 
+### Existing Plot References
+If user references a plot by ID (e.g., "regenerate pop_bar", "modify the cosine_wave plot"):
+1. Check if `/tmp/viz/<id>.py` exists
+2. If yes, read the script and follow the [Refinement and Regeneration](#refinement-and-regeneration) workflow
+3. If no, inform user the plot wasn't found and offer to list available plots with `--list`
+
+**Action:** `python {SKILL_DIR}/scripts/viz_runner.py --list` shows all available plots.
+
 ## Artifact Management
 
 All artifacts are managed in `/tmp/viz/` via the helper script.
@@ -148,6 +156,26 @@ Do NOT automatically read the PNG into context after generating a plot. The plot
 open /tmp/viz/pop_bar.png  # macOS
 ```
 
+## ID Watermarks
+
+Plots include a small, semi-transparent watermark showing the plot ID in the bottom-right corner by default. This helps track plots during iterative development.
+
+### Disabling Watermarks
+
+Add `--no-watermark` for clean/production versions:
+```bash
+python {SKILL_DIR}/scripts/viz_runner.py --file /tmp/viz/_draft.py --id my_plot --no-watermark
+```
+
+### When to Disable Watermarks
+
+Recognize these user requests as triggers for `--no-watermark`:
+- "clean version" / "clean copy"
+- "for presentation" / "presentation quality"
+- "production ready" / "final version"
+- "no watermark" / "without ID"
+- "export quality"
+
 ## Refinement and Regeneration
 
 ### Refining an Existing Plot
@@ -156,12 +184,16 @@ open /tmp/viz/pop_bar.png  # macOS
 3. Execute with a new ID (e.g., `pop_bar_2`)
 
 ### Regenerating a Plot
-Run the saved script using the viz skill's Python environment:
-```bash
-uv run --directory {SKILL_DIR}/scripts python /tmp/viz/pop_bar.py
-```
+To regenerate while preserving the original:
+1. Read the existing script from `/tmp/viz/<id>.py`
+2. Write to temp file and execute via runner with the same ID:
+   ```bash
+   rm -f /tmp/viz/_draft.py
+   # Write script content to /tmp/viz/_draft.py
+   python {SKILL_DIR}/scripts/viz_runner.py --file /tmp/viz/_draft.py --id pop_bar --desc "Regenerated"
+   ```
 
-The script contains the hardcoded savefig path, so it overwrites the existing PNG.
+The runner's `get_unique_id()` will automatically create `pop_bar_2`, `pop_bar_3`, etc. if the ID exists, preserving the original.
 
 ## Marimo Notebook Support
 
