@@ -19,7 +19,7 @@ Instructions for Claude sessions working on this skill.
 ## Skill Architecture
 
 ```
-presentations/
+presentation/
 ├── README.md                       # Human documentation
 ├── CLAUDE.md                       # This file - development instructions
 └── skills/

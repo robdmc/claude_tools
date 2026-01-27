@@ -1,6 +1,6 @@
-# Brainstorming Skill
+# Brainstorm Skill
 
-A general-purpose Socratic brainstorming skill combining research-backed techniques from IDEO, HBR, and cognitive science.
+A general-purpose Socratic brainstorm skill combining research-backed techniques from IDEO, HBR, and cognitive science.
 
 ## Trigger
 
@@ -189,7 +189,7 @@ Let the topic guide your choice. Don't ask the user which format - just pick the
 
 ## File Saving Behavior
 
-At the end of a brainstorming session:
+At the end of a brainstorm session:
 
 1. **Ask before saving**: "Would you like me to save this to a file?"
 2. If yes, save to the **current working directory**
