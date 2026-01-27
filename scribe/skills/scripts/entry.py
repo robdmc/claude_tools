@@ -134,6 +134,8 @@ def cmd_write(args):
             print(f"Error: File not found: {args.file}", file=sys.stderr)
             sys.exit(1)
         entry = file_path.read_text().strip()
+        # Remove the temp file so next write doesn't show a diff
+        file_path.unlink()
     else:
         entry = sys.stdin.read().strip()
 
