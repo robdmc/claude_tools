@@ -48,8 +48,6 @@ Finally got k-means working after fixing the normalization issue.
 **Archived:**
 - `src/analysis/clustering.ipynb` → [`2026-01-23-14-35-clustering.ipynb`](assets/2026-01-23-14-35-clustering.ipynb) — First working version
 
-**Status:** Ready to test on full dataset.
-
 ---
 ```
 
