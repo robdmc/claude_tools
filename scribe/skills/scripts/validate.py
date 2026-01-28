@@ -9,7 +9,9 @@ import re
 import sys
 from pathlib import Path
 
-from common import ENTRY_ID_PATTERN, find_scribe_dir
+import yaml
+
+from common import ENTRY_ID_PATTERN, FRONTMATTER_PATTERN, find_scribe_dir
 
 # Pre-compiled regex patterns for performance
 HEADER_PATTERN = re.compile(r"^## (\d{2}:\d{2}) — (.+)$", re.MULTILINE)
@@ -21,38 +23,90 @@ LOG_FILE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
 
 
 def extract_entries(log_file: Path) -> list[dict]:
-    """Extract entries from a daily log file."""
+    """Extract entries from a daily log file (both legacy and frontmatter formats)."""
     content = log_file.read_text()
     entries = []
 
-    parts = HEADER_PATTERN.split(content)
+    # Find all entry boundaries
+    # New format: starts with --- (frontmatter)
+    # Legacy format: starts with ## HH:MM
 
-    for i in range(1, len(parts), 3):
-        if i + 2 >= len(parts):
-            break
-        time = parts[i]
-        title = parts[i + 1]
-        body = parts[i + 2] if i + 2 < len(parts) else ""
+    # Split by frontmatter entries first
+    parts = re.split(r"(?=^---\n)", content, flags=re.MULTILINE)
 
-        id_match = ID_PATTERN.search(body)
-        entry_id = id_match.group(1) if id_match else None
+    for part in parts:
+        part = part.strip()
+        if not part:
+            continue
 
-        archived = ARCHIVE_PATTERN.findall(body)
+        # Check if this is a frontmatter entry
+        fm_match = FRONTMATTER_PATTERN.match(part)
+        if fm_match:
+            fm_data = yaml.safe_load(fm_match.group(1)) or {}
+            entry_id = fm_data.get("id")
+            title = fm_data.get("title", "")
+            time = fm_data.get("timestamp", "")
+            git_hash = fm_data.get("git")
+            git_mode = fm_data.get("mode")
+            diff_path = fm_data.get("diff")
 
-        related = []
-        related_section_match = RELATED_SECTION_PATTERN.search(body)
-        if related_section_match:
-            related_text = related_section_match.group(1)
-            related = RELATED_ID_PATTERN.findall(related_text)
+            # Get body after frontmatter
+            body = part[fm_match.end():]
 
-        entries.append({
-            "file": log_file.name,
-            "time": time,
-            "title": title,
-            "id": entry_id,
-            "archived": archived,
-            "related": related,
-        })
+            archived = ARCHIVE_PATTERN.findall(body)
+
+            related = []
+            related_section_match = RELATED_SECTION_PATTERN.search(body)
+            if related_section_match:
+                related_text = related_section_match.group(1)
+                related = RELATED_ID_PATTERN.findall(related_text)
+
+            entries.append({
+                "file": log_file.name,
+                "time": time,
+                "title": title,
+                "id": entry_id,
+                "archived": archived,
+                "related": related,
+                "git": git_hash,
+                "mode": git_mode,
+                "diff": diff_path,
+                "format": "frontmatter",
+            })
+        else:
+            # Try legacy format
+            legacy_parts = HEADER_PATTERN.split(part)
+
+            for i in range(1, len(legacy_parts), 3):
+                if i + 2 > len(legacy_parts):
+                    break
+                time = legacy_parts[i]
+                title = legacy_parts[i + 1]
+                body = legacy_parts[i + 2] if i + 2 < len(legacy_parts) else ""
+
+                id_match = ID_PATTERN.search(body)
+                entry_id = id_match.group(1) if id_match else None
+
+                archived = ARCHIVE_PATTERN.findall(body)
+
+                related = []
+                related_section_match = RELATED_SECTION_PATTERN.search(body)
+                if related_section_match:
+                    related_text = related_section_match.group(1)
+                    related = RELATED_ID_PATTERN.findall(related_text)
+
+                entries.append({
+                    "file": log_file.name,
+                    "time": time,
+                    "title": title,
+                    "id": entry_id,
+                    "archived": archived,
+                    "related": related,
+                    "git": None,
+                    "mode": None,
+                    "diff": None,
+                    "format": "legacy",
+                })
 
     return entries
 
@@ -64,6 +118,7 @@ def validate(scribe_dir: Path, since_id: str | None = None) -> tuple[list[str], 
     """
     errors = []
     assets_dir = scribe_dir / "assets"
+    diffs_dir = scribe_dir / "diffs"
 
     log_files = [f for f in scribe_dir.iterdir() if LOG_FILE_PATTERN.match(f.name)]
 
@@ -84,6 +139,7 @@ def validate(scribe_dir: Path, since_id: str | None = None) -> tuple[list[str], 
         all_entries.extend(entries)
 
         for entry in entries:
+            # Check entry ID
             if not entry["id"]:
                 errors.append(
                     f"✗ {log_file.name} [{entry['time']}] \"{entry['title']}\" — missing entry ID"
@@ -93,6 +149,7 @@ def validate(scribe_dir: Path, since_id: str | None = None) -> tuple[list[str], 
                     f"✗ {log_file.name} [{entry['time']}] — invalid entry ID format: {entry['id']}"
                 )
 
+            # Check archived assets exist
             for _, asset_path in entry["archived"]:
                 asset_file = assets_dir / asset_path
                 if not asset_file.exists():
@@ -100,7 +157,22 @@ def validate(scribe_dir: Path, since_id: str | None = None) -> tuple[list[str], 
                         f"✗ {log_file.name} [{entry['time']}] — references {asset_path} but file not found"
                     )
 
-    # For full validation, also check Related references and orphaned assets
+            # Check diff file exists if referenced
+            if entry["diff"]:
+                # diff path is relative like "diffs/2026-01-27-14-35.diff"
+                diff_file = scribe_dir / entry["diff"]
+                if not diff_file.exists():
+                    errors.append(
+                        f"✗ {log_file.name} [{entry['time']}] — references {entry['diff']} but file not found"
+                    )
+
+            # Check git-entry has commit hash
+            if entry["mode"] == "git-entry" and not entry["git"]:
+                errors.append(
+                    f"✗ {log_file.name} [{entry['time']}] — git-entry mode but no git commit hash"
+                )
+
+    # For full validation, also check Related references and orphaned assets/diffs
     if not since_id:
         all_entry_ids = {entry["id"] for entry in all_entries if entry["id"]}
 
@@ -111,6 +183,7 @@ def validate(scribe_dir: Path, since_id: str | None = None) -> tuple[list[str], 
                         f"✗ {entry['file']} [{entry['time']}] — Related references {related_id} but entry not found"
                     )
 
+        # Check for orphaned assets
         if assets_dir.exists():
             referenced_assets = set()
             for entry in all_entries:
@@ -121,6 +194,21 @@ def validate(scribe_dir: Path, since_id: str | None = None) -> tuple[list[str], 
                 if asset_file.name not in referenced_assets:
                     errors.append(
                         f"✗ Orphaned asset: {asset_file.name} — no entry references it"
+                    )
+
+        # Check for orphaned diffs
+        if diffs_dir.exists():
+            referenced_diffs = set()
+            for entry in all_entries:
+                if entry["diff"]:
+                    # Extract just the filename from path like "diffs/2026-01-27-14-35.diff"
+                    diff_name = Path(entry["diff"]).name
+                    referenced_diffs.add(diff_name)
+
+            for diff_file in diffs_dir.iterdir():
+                if diff_file.name not in referenced_diffs:
+                    errors.append(
+                        f"✗ Orphaned diff: {diff_file.name} — no entry references it"
                     )
 
     return errors, len(all_entries)

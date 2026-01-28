@@ -5,7 +5,9 @@ Scribe is a Claude Code skill that keeps a running narrative log of your explora
 ## What It Does
 
 - **Logs your work** — Narrative entries describing what you did, what worked, what didn't
-- **Snapshots files** — Archives versions of files at meaningful moments (before risky changes, when something finally works)
+- **Tracks git state** — Captures commit hash and code diffs with each entry
+- **Creates git commits** — Optionally commits your changes with the entry as the message
+- **Snapshots files** — Archives versions of files at meaningful moments
 - **Answers questions** — "What did we try for the null problem?" "Where did we leave off?"
 - **Tracks threads** — Links related entries so you can trace an investigation from start to finish
 - **Fixes mistakes** — Edit or delete entries when something goes wrong
@@ -13,6 +15,7 @@ Scribe is a Claude Code skill that keeps a running narrative log of your explora
 ## Requirements
 
 - Python 3.9 or later
+- [uv](https://github.com/astral-sh/uv) for dependency management
 - Claude Code
 
 ## Installation
@@ -31,7 +34,10 @@ Place the `scribe/` folder in your Claude Code skills directory:
     ├── entry.py
     ├── assets.py
     ├── validate.py
-    └── common.py
+    ├── git_state.py
+    ├── git_entry.py
+    ├── common.py
+    └── pyproject.toml
 ```
 
 On first use, the scribe creates a `.scribe/` directory in your project and adds it to `.gitignore`.
@@ -49,7 +55,25 @@ Just talk to the scribe naturally during your Claude Code session:
 "scribe, quick log: fixed the off-by-one error"
 ```
 
-The scribe proposes an entry for you to review before writing. For quick logs, it writes directly.
+The scribe proposes an entry for you to review before writing. It automatically captures the current git commit hash and saves a diff of your Python changes.
+
+### Git Entries (Commit Mode)
+
+When you want to create a git commit along with your log entry, explicitly say "git":
+
+```
+"scribe, git entry — this fixes the ETL bug"
+"scribe, commit this with git"
+"log this with git"
+```
+
+The scribe will:
+1. Show you which tracked files will be committed
+2. Propose an entry for your approval
+3. Create a commit with the entry text as the commit message
+4. Log the entry with the commit hash
+
+**Note:** Git entries only happen when you explicitly use the word "git". Regular log entries capture git state but don't create commits.
 
 ### Archiving Files
 
@@ -86,11 +110,11 @@ Restored files appear next to the current version with an underscore prefix (e.g
 ```
 "scribe, show me the last entry"
 "scribe, delete that last entry"
-"scribe, fix the last entry — the status should say 'blocked' not 'ready'"
+"scribe, fix the last entry — the title should say 'timezone' not 'null'"
 "scribe, re-archive with the correct file"
 ```
 
-If an entry has errors or you want to change it, the scribe can show, edit, replace, or delete the most recent entry. Deleting an entry also removes any files it archived.
+If an entry has errors or you want to change it, the scribe can show, edit, replace, or delete the most recent entry. Deleting an entry also removes any files it archived and its associated diff file.
 
 ### Slash Commands
 
@@ -98,6 +122,7 @@ If you prefer explicit commands:
 
 ```
 /scribe                              — log an entry
+/scribe git entry                    — log and create git commit
 /scribe save clustering.ipynb        — log and archive a file
 /scribe ask what did we try?         — query the logs
 ```
@@ -110,14 +135,19 @@ The scribe creates a `.scribe/` directory in your project:
 .scribe/
 ├── 2026-01-23.md          # Daily log file
 ├── 2026-01-24.md          # One file per day
-└── assets/
-    ├── 2026-01-23-14-35-clustering.ipynb
-    └── 2026-01-24-09-15-etl.py
+├── assets/
+│   ├── 2026-01-23-14-35-clustering.ipynb
+│   └── 2026-01-24-09-15-etl.py
+└── diffs/
+    ├── 2026-01-23-14-35.diff
+    └── 2026-01-23-16-20.diff
 ```
 
-**Log files** are append-only markdown. Each entry has a timestamp, ID, title, narrative, and status.
+**Log files** are append-only markdown. Each entry has YAML frontmatter with ID, timestamp, title, git hash, and diff path.
 
 **Assets** are snapshots of files, named with the entry ID that archived them.
+
+**Diffs** are unified diffs of Python files (by default) at the time of each entry.
 
 The scribe also adds these patterns to `.gitignore`:
 - `.scribe/` — the log directory
@@ -126,8 +156,14 @@ The scribe also adds these patterns to `.gitignore`:
 ## Example Entry
 
 ```markdown
+---
+id: 2026-01-23-14-35
+timestamp: "14:35"
+title: Fixed null handling in ETL pipeline
+git: abc1234
+diff: diffs/2026-01-23-14-35.diff
+---
 ## 14:35 — Fixed null handling in ETL pipeline
-<!-- id: 2026-01-23-14-35 -->
 
 Found that nulls originated from the 2019 migration. The legacy system used
 empty strings, but the new schema expects actual NULLs. Updated `etl.py` to
@@ -140,12 +176,31 @@ coalesce empty strings to NULL for pre-2019 records.
 **Archived:**
 - `src/etl/pipeline.py` → [`2026-01-23-14-35-pipeline.py`](assets/2026-01-23-14-35-pipeline.py) — Before null fix
 
-**Status:** Ready for full validation on production dataset
+---
+```
+
+The timestamp, ID, and git metadata are added automatically — you just provide the title and content.
+
+## Git Entry Example
+
+When you create a git entry, the commit hash references a commit you just made:
+
+```markdown
+---
+id: 2026-01-23-16-20
+timestamp: "16:20"
+title: Completed ETL refactor
+git: def5678
+mode: git-entry
+---
+## 16:20 — Completed ETL refactor
+
+Refactored the ETL pipeline to use the new streaming approach...
 
 ---
 ```
 
-The timestamp and ID are added automatically — you just provide the title and content.
+The commit `def5678` contains all your staged changes, with the full entry text as the commit message.
 
 ## Linking Related Entries
 
@@ -168,10 +223,22 @@ The scribe automatically validates entries after writing. Validation checks:
 
 - Every entry has a valid ID
 - Archived files referenced in entries actually exist
+- Diff files referenced in entries actually exist
+- Git entries have a commit hash
 - Related references point to valid entry IDs
-- No orphaned assets in the assets folder
+- No orphaned assets or diffs
 
 If validation finds issues, the scribe will tell you and help fix them.
+
+## Diff Extensions
+
+By default, diffs only include `.py` files to avoid bloating the diffs directory with data files. You can customize this when needed:
+
+```
+"scribe, log this and include SQL in the diff"
+```
+
+The scribe will use `--ext "py,sql"` when saving the diff.
 
 ## Tips
 
@@ -180,6 +247,7 @@ If validation finds issues, the scribe will tell you and help fix them.
 - **Use "dead end" annotations** — Failed approaches are valuable to record
 - **Snapshot before risky changes** — Easy to compare or revert
 - **Ask questions when returning** — "Where did we leave off?" gets you back up to speed
+- **Use git entries for milestones** — When you want a proper commit, not just a log
 
 ## Limitations
 
@@ -187,6 +255,7 @@ If validation finds issues, the scribe will tell you and help fix them.
 - **Project scale** — Best for weeks-to-months of work, not permanent archives
 - **Plain text** — Logs are markdown; no database, no sync, no cloud
 - **Latest entry only** — Edit commands only work on the most recent entry
+- **Git required for git features** — If not in a git repo, git state tracking is unavailable
 
 ## Files
 
@@ -199,6 +268,9 @@ The skill consists of:
 | `scripts/entry.py` | Writes and edits log entries |
 | `scripts/assets.py` | Archives and restores file snapshots |
 | `scripts/validate.py` | Checks log consistency |
+| `scripts/git_state.py` | Captures commit hash and saves diffs |
+| `scripts/git_entry.py` | Creates git commits with entry as message |
 | `scripts/common.py` | Shared utilities |
+| `scripts/pyproject.toml` | Python dependencies (pyyaml) |
 
 You don't need to run these scripts directly — Claude handles that. But they're plain Python if you want to inspect or modify them.

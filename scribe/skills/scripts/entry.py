@@ -11,7 +11,14 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from common import ENTRY_ID_PATTERN, ENTRY_ID_COMMENT_PATTERN, require_scribe_dir
+import yaml
+
+from common import (
+    ENTRY_ID_PATTERN,
+    ENTRY_ID_COMMENT_PATTERN,
+    FRONTMATTER_PATTERN,
+    require_scribe_dir,
+)
 
 # Pre-compiled regex patterns for performance
 HEADER_WITH_TIME_PATTERN = re.compile(r"^## (\d{2}:\d{2}) — .+$", re.MULTILINE)
@@ -19,13 +26,19 @@ HEADER_SIMPLE_PATTERN = re.compile(r"^## (.+)$", re.MULTILINE)
 LOG_FILE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
 TIME_FORMAT_PATTERN = re.compile(r"^\d{2}:\d{2}$")
 
+# Pattern for extracting ID from YAML frontmatter
+FRONTMATTER_ID_PATTERN = re.compile(r"^id:\s*(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}(?:-\d{2,})?)\s*$", re.MULTILINE)
+
 
 def get_existing_ids(log_file: Path) -> set[str]:
-    """Extract all entry IDs from a log file."""
+    """Extract all entry IDs from a log file (both legacy and frontmatter formats)."""
     if not log_file.exists():
         return set()
     content = log_file.read_text()
-    return set(ENTRY_ID_COMMENT_PATTERN.findall(content))
+    # Get IDs from both legacy HTML comments and YAML frontmatter
+    legacy_ids = set(ENTRY_ID_COMMENT_PATTERN.findall(content))
+    frontmatter_ids = set(FRONTMATTER_ID_PATTERN.findall(content))
+    return legacy_ids | frontmatter_ids
 
 
 def generate_entry_id(log_file: Path, time_str: str) -> str:
@@ -46,28 +59,61 @@ def generate_entry_id(log_file: Path, time_str: str) -> str:
     return f"{base_id}-{suffix:02d}"
 
 
-def inject_entry_id(entry: str, entry_id: str) -> str:
-    """Inject the entry ID comment after the header line."""
-    lines = entry.split("\n")
-    result = []
-    id_injected = False
+def build_frontmatter(
+    entry_id: str,
+    timestamp: str,
+    title: str,
+    git_hash: str | None = None,
+    git_diff: str | None = None,
+    git_mode: str | None = None,
+) -> str:
+    """Build YAML frontmatter block for an entry."""
+    data = {
+        "id": entry_id,
+        "timestamp": timestamp,
+        "title": title,
+    }
 
-    for line in lines:
-        result.append(line)
-        if not id_injected and HEADER_WITH_TIME_PATTERN.match(line):
-            result.append(f"<!-- id: {entry_id} -->")
-            id_injected = True
+    if git_hash:
+        data["git"] = git_hash
 
-    if not id_injected:
-        result.insert(0, f"<!-- id: {entry_id} -->")
+    if git_diff:
+        data["diff"] = git_diff
 
-    return "\n".join(result)
+    if git_mode:
+        data["mode"] = git_mode
+
+    # Use block style for clean output
+    yaml_str = yaml.dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    return f"---\n{yaml_str}---\n"
+
+
+def inject_frontmatter(
+    entry: str,
+    entry_id: str,
+    timestamp: str,
+    title: str,
+    git_hash: str | None = None,
+    git_diff: str | None = None,
+    git_mode: str | None = None,
+) -> str:
+    """Inject YAML frontmatter at the beginning of an entry."""
+    frontmatter = build_frontmatter(
+        entry_id=entry_id,
+        timestamp=timestamp,
+        title=title,
+        git_hash=git_hash,
+        git_diff=git_diff,
+        git_mode=git_mode,
+    )
+    return frontmatter + entry
 
 
 def find_latest_entry(scribe_dir: Path) -> tuple[Path, str | None, str, int, int] | None:
     """Find the latest entry across all log files.
 
     Returns (log_file, entry_id, entry_content, start_pos, end_pos) or None.
+    Handles both legacy (HTML comment) and new (YAML frontmatter) formats.
     """
     log_files = sorted(
         [f for f in scribe_dir.iterdir() if LOG_FILE_PATTERN.match(f.name)],
@@ -79,18 +125,45 @@ def find_latest_entry(scribe_dir: Path) -> tuple[Path, str | None, str, int, int
 
     for log_file in log_files:
         content = log_file.read_text()
-        matches = list(HEADER_WITH_TIME_PATTERN.finditer(content))
 
-        if not matches:
+        # Find all entry start positions (both formats)
+        # New format: entries start with ---\n (frontmatter)
+        # Legacy format: entries start with ## HH:MM
+        entry_starts = []
+
+        # Find frontmatter entries
+        for match in re.finditer(r"^---\n", content, re.MULTILINE):
+            # Make sure this is an entry frontmatter, not just any ---
+            pos = match.start()
+            # Check if there's an id: field in the next few lines
+            snippet = content[pos:pos + 200]
+            if FRONTMATTER_ID_PATTERN.search(snippet):
+                entry_starts.append(("frontmatter", pos))
+
+        # Find legacy entries
+        for match in HEADER_WITH_TIME_PATTERN.finditer(content):
+            entry_starts.append(("legacy", match.start()))
+
+        if not entry_starts:
             continue
 
-        last_match = matches[-1]
-        start_pos = last_match.start()
+        # Sort by position and get the last one
+        entry_starts.sort(key=lambda x: x[1])
+        entry_type, start_pos = entry_starts[-1]
         end_pos = len(content)
         entry_content = content[start_pos:end_pos]
 
-        id_match = ENTRY_ID_COMMENT_PATTERN.search(entry_content)
-        entry_id = id_match.group(1) if id_match else None
+        # Extract entry ID based on format
+        if entry_type == "frontmatter":
+            fm_match = FRONTMATTER_PATTERN.match(entry_content)
+            if fm_match:
+                fm_data = yaml.safe_load(fm_match.group(1)) or {}
+                entry_id = fm_data.get("id")
+            else:
+                entry_id = None
+        else:
+            id_match = ENTRY_ID_COMMENT_PATTERN.search(entry_content)
+            entry_id = id_match.group(1) if id_match else None
 
         return (log_file, entry_id, entry_content, start_pos, end_pos)
 
@@ -112,7 +185,21 @@ def delete_assets_for_entry(scribe_dir: Path, entry_id: str) -> list[str]:
     return deleted
 
 
-def quick_validate(scribe_dir: Path, entry_id: str) -> list[str]:
+def delete_diff_for_entry(scribe_dir: Path, entry_id: str) -> str | None:
+    """Delete the diff file associated with an entry ID."""
+    diffs_dir = scribe_dir / "diffs"
+    if not diffs_dir.exists():
+        return None
+
+    diff_file = diffs_dir / f"{entry_id}.diff"
+    if diff_file.exists():
+        diff_file.unlink()
+        return diff_file.name
+
+    return None
+
+
+def quick_validate(_scribe_dir: Path, entry_id: str) -> list[str]:
     """Quick validation for a single entry. Returns list of errors."""
     errors = []
 
@@ -150,6 +237,10 @@ def cmd_write(args):
     legacy_match = HEADER_WITH_TIME_PATTERN.search(entry)
     if legacy_match:
         time_str = legacy_match.group(1)
+        header_match = HEADER_WITH_TIME_PATTERN.search(entry)
+        # Extract title from "## HH:MM — Title"
+        full_header = header_match.group(0) if header_match else ""
+        title = full_header.split(" — ", 1)[1] if " — " in full_header else "Untitled"
     else:
         header_match = HEADER_SIMPLE_PATTERN.search(entry)
         if not header_match:
@@ -166,8 +257,19 @@ def cmd_write(args):
     # Generate unique entry ID
     entry_id = generate_entry_id(log_file, time_str)
 
-    # Inject ID into entry
-    entry_with_id = inject_entry_id(entry, entry_id)
+    # Build git-related paths
+    git_diff_path = f"diffs/{entry_id}.diff" if args.git_diff else None
+
+    # Inject frontmatter into entry
+    entry_with_frontmatter = inject_frontmatter(
+        entry=entry,
+        entry_id=entry_id,
+        timestamp=time_str,
+        title=title,
+        git_hash=args.git,
+        git_diff=git_diff_path if args.git_diff else None,
+        git_mode=args.git_mode,
+    )
 
     # Create log file if needed
     if not log_file.exists():
@@ -175,8 +277,8 @@ def cmd_write(args):
 
     # Append entry
     with open(log_file, "a") as f:
-        f.write(entry_with_id)
-        if not entry_with_id.endswith("\n"):
+        f.write(entry_with_frontmatter)
+        if not entry_with_frontmatter.endswith("\n"):
             f.write("\n")
 
     print(f"Entry written: {entry_id}")
@@ -222,17 +324,24 @@ def cmd_last(args):
 
     if args.with_title:
         content = log_file.read_text()
-        pattern = re.compile(rf"^## (\d{{2}}:\d{{2}}) — (.+)$\n<!-- id: {re.escape(last_id)} -->", re.MULTILINE)
-        match = pattern.search(content)
-        if match:
-            print(f"{last_id} — {match.group(2)}")
+        # Try frontmatter format first
+        fm_pattern = re.compile(rf"id:\s*{re.escape(last_id)}\s*\n.*?title:\s*(.+?)\s*\n", re.DOTALL)
+        fm_match = fm_pattern.search(content)
+        if fm_match:
+            print(f"{last_id} — {fm_match.group(1)}")
         else:
-            print(last_id)
+            # Fall back to legacy format
+            legacy_pattern = re.compile(rf"^## (\d{{2}}:\d{{2}}) — (.+)$\n<!-- id: {re.escape(last_id)} -->", re.MULTILINE)
+            legacy_match = legacy_pattern.search(content)
+            if legacy_match:
+                print(f"{last_id} — {legacy_match.group(2)}")
+            else:
+                print(last_id)
     else:
         print(last_id)
 
 
-def cmd_edit_latest_show(args):
+def cmd_edit_latest_show(_args):
     """Display the latest entry."""
     scribe_dir = require_scribe_dir()
 
@@ -246,8 +355,8 @@ def cmd_edit_latest_show(args):
     print(entry_content)
 
 
-def cmd_edit_latest_delete(args):
-    """Delete the latest entry and its associated assets."""
+def cmd_edit_latest_delete(_args):
+    """Delete the latest entry and its associated assets and diffs."""
     scribe_dir = require_scribe_dir()
 
     result = find_latest_entry(scribe_dir)
@@ -258,9 +367,15 @@ def cmd_edit_latest_delete(args):
     log_file, entry_id, _, start_pos, _ = result
 
     if entry_id:
+        # Delete associated assets
         deleted_assets = delete_assets_for_entry(scribe_dir, entry_id)
         for asset in deleted_assets:
             print(f"Deleted asset: {asset}")
+
+        # Delete associated diff file
+        deleted_diff = delete_diff_for_entry(scribe_dir, entry_id)
+        if deleted_diff:
+            print(f"Deleted diff: {deleted_diff}")
 
     content = log_file.read_text()
     new_content = content[:start_pos].rstrip()
@@ -305,6 +420,8 @@ def cmd_edit_latest_replace(args):
     legacy_match = HEADER_WITH_TIME_PATTERN.search(new_entry)
     if legacy_match:
         time_str = legacy_match.group(1)
+        full_header = legacy_match.group(0)
+        title = full_header.split(" — ", 1)[1] if " — " in full_header else "Untitled"
     else:
         header_match = HEADER_SIMPLE_PATTERN.search(new_entry)
         if not header_match:
@@ -314,10 +431,16 @@ def cmd_edit_latest_replace(args):
         title = header_match.group(1)
         new_entry = re.sub(r"^## .+$", f"## {time_str} — {title}", new_entry, count=1, flags=re.MULTILINE)
 
-    new_entry_with_id = inject_entry_id(new_entry, old_entry_id)
+    # For replace, we use the old entry ID but create new frontmatter
+    new_entry_with_frontmatter = inject_frontmatter(
+        entry=new_entry,
+        entry_id=old_entry_id,
+        timestamp=time_str,
+        title=title,
+    )
 
     content = log_file.read_text()
-    new_content = content[:start_pos] + new_entry_with_id
+    new_content = content[:start_pos] + new_entry_with_frontmatter
     if not new_content.endswith("\n"):
         new_content += "\n"
 
@@ -358,7 +481,7 @@ def cmd_edit_latest_rearchive(args):
     print(f"Archived: {dest_name}")
 
 
-def cmd_edit_latest_unarchive(args):
+def cmd_edit_latest_unarchive(_args):
     """Delete all assets associated with the latest entry (but keep the entry)."""
     scribe_dir = require_scribe_dir()
 
@@ -389,6 +512,9 @@ def main():
     write_parser = subparsers.add_parser("write", help="Write an entry (from file or stdin)")
     write_parser.add_argument("--file", help="Read entry from file instead of stdin")
     write_parser.add_argument("--no-validate", action="store_true", help="Skip validation after write")
+    write_parser.add_argument("--git", help="Git commit hash to include in frontmatter")
+    write_parser.add_argument("--git-diff", action="store_true", help="Include diff path in frontmatter")
+    write_parser.add_argument("--git-mode", choices=["git-entry"], help="Git mode (git-entry for commit mode)")
     write_parser.set_defaults(func=cmd_write)
 
     # new-id command
@@ -408,7 +534,7 @@ def main():
     edit_show = edit_subparsers.add_parser("show", help="Display the latest entry")
     edit_show.set_defaults(func=cmd_edit_latest_show)
 
-    edit_delete = edit_subparsers.add_parser("delete", help="Delete the latest entry and its assets")
+    edit_delete = edit_subparsers.add_parser("delete", help="Delete the latest entry and its assets/diffs")
     edit_delete.set_defaults(func=cmd_edit_latest_delete)
 
     edit_replace = edit_subparsers.add_parser("replace", help="Replace the latest entry (from file or stdin)")
