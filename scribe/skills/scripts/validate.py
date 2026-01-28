@@ -27,73 +27,97 @@ def extract_entries(log_file: Path) -> list[dict]:
     content = log_file.read_text()
     entries = []
 
-    # Find all entry boundaries
-    # New format: starts with --- (frontmatter)
-    # Legacy format: starts with ## HH:MM
+    # Find all entry start positions
+    # Frontmatter: ---\n followed by id: within ~200 chars (not a closing ---)
+    # Legacy: ## HH:MM — Title
 
-    # Split by frontmatter entries first
-    parts = re.split(r"(?=^---\n)", content, flags=re.MULTILINE)
+    entry_starts: list[tuple[str, int]] = []  # (format, position)
 
-    for part in parts:
-        part = part.strip()
-        if not part:
-            continue
-
-        # Check if this is a frontmatter entry
-        fm_match = FRONTMATTER_PATTERN.match(part)
+    # Find frontmatter entry starts
+    # Must have valid YAML frontmatter with id: field
+    frontmatter_ranges: list[tuple[int, int]] = []  # (start, end) of frontmatter blocks
+    for match in re.finditer(r"^---\n", content, re.MULTILINE):
+        pos = match.start()
+        snippet = content[pos:pos + 500]
+        # Check if this is valid frontmatter (has closing --- and id: field)
+        fm_match = FRONTMATTER_PATTERN.match(snippet)
         if fm_match:
-            fm_data = yaml.safe_load(fm_match.group(1)) or {}
-            entry_id = fm_data.get("id")
-            title = fm_data.get("title", "")
-            time = fm_data.get("timestamp", "")
-            git_hash = fm_data.get("git")
-            git_mode = fm_data.get("mode")
-            diff_path = fm_data.get("diff")
+            fm_yaml = fm_match.group(1)
+            # YAML content shouldn't start with --- (that would mean we matched wrong)
+            if fm_yaml.startswith("---"):
+                continue
+            if re.search(r"^id:\s*\d{4}-\d{2}-\d{2}", fm_yaml, re.MULTILINE):
+                entry_starts.append(("frontmatter", pos))
+                # Track where frontmatter ends (after closing ---)
+                frontmatter_ranges.append((pos, pos + fm_match.end()))
 
-            # Get body after frontmatter
-            body = part[fm_match.end():]
+    # Find legacy entry starts (but not if they're inside a frontmatter block)
+    for match in HEADER_PATTERN.finditer(content):
+        pos = match.start()
+        # Skip if this header is inside/immediately after a frontmatter entry
+        inside_frontmatter = any(start <= pos <= end for start, end in frontmatter_ranges)
+        if not inside_frontmatter:
+            entry_starts.append(("legacy", pos))
 
-            archived = ARCHIVE_PATTERN.findall(body)
+    # Sort by position
+    entry_starts.sort(key=lambda x: x[1])
 
-            related = []
-            related_section_match = RELATED_SECTION_PATTERN.search(body)
-            if related_section_match:
-                related_text = related_section_match.group(1)
-                related = RELATED_ID_PATTERN.findall(related_text)
-
-            entries.append({
-                "file": log_file.name,
-                "time": time,
-                "title": title,
-                "id": entry_id,
-                "archived": archived,
-                "related": related,
-                "git": git_hash,
-                "mode": git_mode,
-                "diff": diff_path,
-                "format": "frontmatter",
-            })
+    # Extract each entry
+    for i, (fmt, start_pos) in enumerate(entry_starts):
+        # Entry ends at next entry start or end of file
+        if i + 1 < len(entry_starts):
+            end_pos = entry_starts[i + 1][1]
         else:
-            # Try legacy format
-            legacy_parts = HEADER_PATTERN.split(part)
+            end_pos = len(content)
 
-            for i in range(1, len(legacy_parts), 3):
-                if i + 2 > len(legacy_parts):
-                    break
-                time = legacy_parts[i]
-                title = legacy_parts[i + 1]
-                body = legacy_parts[i + 2] if i + 2 < len(legacy_parts) else ""
+        entry_content = content[start_pos:end_pos]
+
+        if fmt == "frontmatter":
+            fm_match = FRONTMATTER_PATTERN.match(entry_content)
+            if fm_match:
+                fm_data = yaml.safe_load(fm_match.group(1)) or {}
+                entry_id = fm_data.get("id")
+                title = fm_data.get("title", "")
+                time = fm_data.get("timestamp", "")
+                git_hash = fm_data.get("git")
+                git_mode = fm_data.get("mode")
+                diff_path = fm_data.get("diff")
+                body = entry_content[fm_match.end():]
+
+                archived = ARCHIVE_PATTERN.findall(body)
+                related = []
+                related_section_match = RELATED_SECTION_PATTERN.search(body)
+                if related_section_match:
+                    related = RELATED_ID_PATTERN.findall(related_section_match.group(1))
+
+                entries.append({
+                    "file": log_file.name,
+                    "time": time,
+                    "title": title,
+                    "id": entry_id,
+                    "archived": archived,
+                    "related": related,
+                    "git": git_hash,
+                    "mode": git_mode,
+                    "diff": diff_path,
+                    "format": "frontmatter",
+                })
+        else:
+            # Legacy format
+            header_match = HEADER_PATTERN.match(entry_content)
+            if header_match:
+                time = header_match.group(1)
+                title = header_match.group(2)
+                body = entry_content[header_match.end():]
 
                 id_match = ID_PATTERN.search(body)
                 entry_id = id_match.group(1) if id_match else None
 
                 archived = ARCHIVE_PATTERN.findall(body)
-
                 related = []
                 related_section_match = RELATED_SECTION_PATTERN.search(body)
                 if related_section_match:
-                    related_text = related_section_match.group(1)
-                    related = RELATED_ID_PATTERN.findall(related_text)
+                    related = RELATED_ID_PATTERN.findall(related_section_match.group(1))
 
                 entries.append({
                     "file": log_file.name,
