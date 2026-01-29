@@ -1,0 +1,9 @@
+[project]
+name = "history-skill"
+version = "0.1.0"
+requires-python = ">=3.9"
+dependencies = [
+    "lancedb>=0.6.0",
+    "sentence-transformers>=2.2.0",
+    "pyarrow>=15.0.0",
+]

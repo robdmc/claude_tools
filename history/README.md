@@ -1,12 +1,13 @@
 # History
 
-Search and explore Claude Code conversation history across all projects. Find past sessions, explore what happened in them, and import sessions to resume work.
+Search and explore Claude Code conversation history across all projects. Find past sessions by meaning (semantic search) or keyword, explore what happened in them, export transcripts, and import sessions to resume work.
 
 ## Features
 
-- **Search**: Find sessions by keyword across all projects
+- **Semantic Search**: Find sessions by meaning using LanceDB vector search
 - **List**: Show recent sessions with summaries
 - **Explore**: Query within a session (files created, message flow, grep)
+- **Export**: Save sessions as Markdown or JSON transcripts
 - **Import/Unimport**: Bring sessions to current project for `/resume`
 
 ## Usage
@@ -15,9 +16,11 @@ Invoke with `/history <natural language query>`:
 
 ```
 /history list                          # Recent sessions
-/history find subscription model       # Search for a term
+/history search authentication setup   # Semantic search (finds similar meaning)
 /history what happened in abc123       # Explore a session
+/history export abc123                 # Export to Markdown
 /history import abc123                 # Import for /resume
+/history index                         # Build/update search index
 ```
 
 ## Progressive Disclosure
@@ -34,13 +37,34 @@ The skill minimizes token usage through progressive disclosure:
 
 ## Scripts
 
-### search_sessions.py
+Scripts in `skills/scripts/` fall into two categories:
 
-Search all sessions for a term:
+### Standard Python Scripts
+
+Run directly with `python`:
 
 ```bash
-python search_sessions.py --query "subscription" --limit 5 --json
+python list_sessions.py --limit 10 --json
+python explore_session.py <session_id> --summary
+python import_session.py <session_id> --dry-run
 ```
+
+### LanceDB Scripts (require UV)
+
+These require dependencies (lancedb, sentence-transformers) and run via UV:
+
+```bash
+# Index sessions for semantic search
+uv run --directory skills/scripts index_history.py --stats
+
+# Semantic search
+uv run --directory skills/scripts search_history.py "how to set up auth"
+
+# Export session
+uv run --directory skills/scripts export_session.py <session_id> --output transcript.md
+```
+
+## Script Reference
 
 ### list_sessions.py
 
@@ -72,6 +96,39 @@ python import_session.py --list-imports             # Show imported sessions
 python import_session.py <session_id> --unimport    # Remove import
 ```
 
+### index_history.py
+
+Build/update the LanceDB vector index:
+
+```bash
+uv run index_history.py                    # Index new sessions
+uv run index_history.py --rebuild          # Rebuild entire index
+uv run index_history.py --stats            # Show index statistics
+uv run index_history.py --session abc123   # Index specific session
+```
+
+### search_history.py
+
+Semantic search using vector similarity:
+
+```bash
+uv run search_history.py "authentication setup"     # Basic search
+uv run search_history.py "errors" --type user_prompt  # Filter by type
+uv run search_history.py "testing" --project myapp  # Filter by project
+uv run search_history.py "query" --full --json      # Full output as JSON
+```
+
+### export_session.py
+
+Export sessions to portable formats:
+
+```bash
+uv run export_session.py <session_id>                    # Print Markdown
+uv run export_session.py <session_id> --output file.md   # Save to file
+uv run export_session.py <session_id> --format json      # Export as JSON
+uv run export_session.py <session_id> --include-results  # Include tool results
+```
+
 ## Installation
 
 Use the `/install` command from the claude_tools repository:
@@ -81,3 +138,8 @@ Use the `/install` command from the claude_tools repository:
 ```
 
 Or manually copy/symlink the `history/skills/` directory to your Claude Code skills location.
+
+## Requirements
+
+- **Standard scripts**: Python 3.9+
+- **LanceDB scripts**: UV (for dependency management), ~500MB for embedding model on first run
