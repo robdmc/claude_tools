@@ -40,11 +40,16 @@ This skill follows a progressive disclosure pattern to minimize token usage:
 Search all sessions for a term:
 
 ```bash
-python {SKILL_DIR}/scripts/search_sessions.py --query "subscription" --limit 5 --json
+# Basic search (summary and firstPrompt only)
+python {SKILL_DIR}/scripts/search_sessions.py --query "subscription" --limit 5
+
+# Deep search (also searches inside JSONL message content)
+python {SKILL_DIR}/scripts/search_sessions.py --query "efficiency" --deep --limit 10
 ```
 
 Arguments:
 - `--query` (required): Search term (searches summary and firstPrompt)
+- `--deep`: Also search inside JSONL message content (slower but finds more)
 - `--limit`: Max results (default: 5)
 - `--json`: Output JSON instead of human-readable
 
@@ -53,12 +58,20 @@ Arguments:
 List recent sessions:
 
 ```bash
-python {SKILL_DIR}/scripts/list_sessions.py --limit 10 --project /path/to/project --json
+# Sessions from current directory (default)
+python {SKILL_DIR}/scripts/list_sessions.py
+
+# Sessions from all projects
+python {SKILL_DIR}/scripts/list_sessions.py --all
+
+# Sessions from specific project
+python {SKILL_DIR}/scripts/list_sessions.py --project /path/to/project --limit 10
 ```
 
 Arguments:
 - `--limit`: Max results (default: 5)
-- `--project`: Filter to specific project path
+- `--project`: Filter to specific project path (default: current directory)
+- `--all`: Show sessions from all projects (overrides --project default)
 - `--json`: Output JSON
 
 ### explore_session.py
@@ -69,23 +82,32 @@ Query a specific session:
 # Get message flow summary
 python {SKILL_DIR}/scripts/explore_session.py <session_id> --summary
 
-# Search for pattern within session
+# Search for pattern within session (shows match previews)
 python {SKILL_DIR}/scripts/explore_session.py <session_id> --grep "pattern" --context 2
 
 # List files created/edited
 python {SKILL_DIR}/scripts/explore_session.py <session_id> --files
 
-# Show specific message
+# Show specific message (human-readable by default)
 python {SKILL_DIR}/scripts/explore_session.py <session_id> --message 5
+
+# Show specific message as raw JSON
+python {SKILL_DIR}/scripts/explore_session.py <session_id> --message 5 --raw
+
+# Extract user prompts only (filtered, no system injections)
+python {SKILL_DIR}/scripts/explore_session.py <session_id> --user-prompts --limit 3
 ```
 
 Arguments:
-- `session_id` (required): The session ID to explore
+- `session_id` (required): The session ID to explore (prefix match supported, e.g., `35377e2e`)
 - `--summary`: Show message flow with tool summaries
-- `--grep`: Search for pattern within session
+- `--grep`: Search for pattern within session (shows actual match text with context)
 - `--context`: Lines of context around grep matches (default: 2)
 - `--files`: List all files created/edited
-- `--message`: Show specific message by index
+- `--message`: Show specific message by index (human-readable by default)
+- `--user-prompts`: Show only user prompts, filtered to remove system injections
+- `--limit`: Limit number of results (for --user-prompts)
+- `--raw`: Output raw JSON for --message
 - `--json`: Output JSON
 
 ### import_session.py
@@ -140,10 +162,14 @@ When the user asks naturally, interpret and run the appropriate script:
 |------------|--------|
 | "find where I created X" | search_sessions.py --query "X" |
 | "conversations about Y" | search_sessions.py --query "Y" |
+| "deep search for Z" | search_sessions.py --query "Z" --deep |
 | "recent sessions" / "list sessions" | list_sessions.py |
+| "sessions in this project" | list_sessions.py (defaults to cwd) |
+| "all my sessions" | list_sessions.py --all |
 | "what happened in session Z" | explore_session.py Z --summary |
 | "what files were created?" | explore_session.py Z --files |
 | "search for pattern in that session" | explore_session.py Z --grep "pattern" |
+| "what did I ask?" / "show my prompts" | explore_session.py Z --user-prompts |
 
 ### Import
 | User Query | Action |

@@ -6,6 +6,7 @@ Lists sessions from all sessions-index.json files, sorted by most recent.
 
 import argparse
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -129,17 +130,23 @@ def list_sessions(limit: int = 5, project_filter: Optional[str] = None) -> dict:
     }
 
 
-def format_human_readable(results: dict) -> str:
+def format_human_readable(results: dict, project_filter: Optional[str] = None) -> str:
     """Format results for human reading."""
     total = results["total"]
     sessions = results["results"]
 
     if total == 0:
+        if project_filter:
+            return f"No sessions found in {project_filter}."
         return "No sessions found."
 
-    lines = [f"Found {total} session(s):"]
+    header = f"Found {total} session(s)"
+    if project_filter:
+        header += f" in {Path(project_filter).name}"
+    header += ":"
     if total > len(sessions):
-        lines[0] += f" (showing {len(sessions)} most recent)"
+        header += f" (showing {len(sessions)} most recent)"
+    lines = [header]
     lines.append("")
 
     for i, session in enumerate(sessions, 1):
@@ -161,17 +168,27 @@ def format_human_readable(results: dict) -> str:
 def main():
     parser = argparse.ArgumentParser(description="List recent Claude Code sessions")
     parser.add_argument("--limit", "-l", type=int, default=5, help="Max results (default: 5)")
-    parser.add_argument("--project", "-p", help="Filter to specific project path")
+    parser.add_argument("--project", "-p", help="Filter to specific project path (default: current directory)")
+    parser.add_argument("--all", "-a", action="store_true", help="Show sessions from all projects")
     parser.add_argument("--json", "-j", action="store_true", help="Output JSON")
 
     args = parser.parse_args()
 
-    results = list_sessions(args.limit, args.project)
+    # Default to current directory unless --all is specified
+    project_filter = None
+    if args.all:
+        project_filter = None
+    elif args.project:
+        project_filter = args.project
+    else:
+        project_filter = os.getcwd()
+
+    results = list_sessions(args.limit, project_filter)
 
     if args.json:
         print(json.dumps(results, indent=2))
     else:
-        print(format_human_readable(results))
+        print(format_human_readable(results, project_filter))
 
 
 if __name__ == "__main__":
