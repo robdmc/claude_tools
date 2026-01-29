@@ -9,7 +9,7 @@ If something goes wrong (validation fails, user wants to change something), use 
 ```bash
 python {SKILL_DIR}/scripts/entry.py edit-latest show       # Display the latest entry
 python {SKILL_DIR}/scripts/entry.py edit-latest delete     # Remove latest entry AND its assets
-python {SKILL_DIR}/scripts/entry.py edit-latest replace --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md  # Replace latest entry
+python {SKILL_DIR}/scripts/entry.py edit-latest replace --file .scribe/draft.md  # Replace latest entry
 python {SKILL_DIR}/scripts/entry.py edit-latest rearchive <file>  # Re-archive a file for latest entry
 python {SKILL_DIR}/scripts/entry.py edit-latest unarchive  # Delete assets for latest entry (keep entry)
 ```
@@ -31,8 +31,8 @@ python {SKILL_DIR}/scripts/entry.py edit-latest rearchive correct_file.py
 
 ### Fix Entry Content
 
-1. Write corrected entry to `/tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`
-2. Run: `python {SKILL_DIR}/scripts/entry.py edit-latest replace --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`
+1. Write corrected entry to `.scribe/draft.md`
+2. Run: `python {SKILL_DIR}/scripts/entry.py edit-latest replace --file .scribe/draft.md`
 
 ### Remove Archives but Keep Entry
 

@@ -46,7 +46,7 @@ Scripts in `{SKILL_DIR}/scripts/`. Resolve `{SKILL_DIR}` to the directory contai
 
 | Script | Purpose |
 |--------|---------|
-| `entry.py write --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md` | Write entry from temp file |
+| `entry.py write --file .scribe/draft.md` | Write entry from temp file |
 | `entry.py write --file ... --git <hash> --git-diff` | Write entry with git metadata |
 | `entry.py write --file ... --git <hash> --git-mode git-entry` | Write git entry |
 | `entry.py new-id` | Generate entry ID for current time (handles collisions) |
@@ -113,14 +113,14 @@ Follow these steps when logging:
    - `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ git_state.py hash` → save the hash
    - `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ entry.py new-id` → get entry ID
    - `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ git_state.py save-diff <id>` → save diff
-5. **Write** — Run `rm -f /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`, create draft, then:
-   `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ entry.py write --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md --git <hash> --git-diff`
+5. **Write** — Run `rm -f .scribe/draft.md`, create draft, then:
+   `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ entry.py write --file .scribe/draft.md --git <hash> --git-diff`
 
 **Important:** Always show a preview and wait for confirmation before writing.
 
 ### Draft Format
 
-Create the draft file at `/tmp/scribe_entry_${CLAUDE_SESSION_ID}.md` (use `rm -f` first):
+Create the draft file at `.scribe/draft.md` (use `rm -f` first):
 
 ```markdown
 ## Brief title here
@@ -155,9 +155,9 @@ The script adds timestamp, ID, and git metadata automatically via frontmatter.
 
    ---
    ```
-5. **Commit** — `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ git_entry.py commit --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`
+5. **Commit** — `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ git_entry.py commit --file .scribe/draft.md`
 6. **Get hash** — `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ git_state.py hash`
-7. **Write** — `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ entry.py write --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md --git <hash> --git-mode git-entry`
+7. **Write** — `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ entry.py write --file .scribe/draft.md --git <hash> --git-mode git-entry`
 
 **Staging behavior:** Only stages modified tracked files. Untracked files are ignored.
 
@@ -183,7 +183,7 @@ When archiving files, include the **Archived** section in your draft before writ
 
 1. Get entry ID — `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ entry.py new-id` (handles collisions)
 2. Draft entry with **Archived** section using that ID
-3. Write entry — `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ entry.py write --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md --git <hash> --git-diff`
+3. Write entry — `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ entry.py write --file .scribe/draft.md --git <hash> --git-diff`
 4. Archive files — `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ assets.py save <id> <file>`
 
 Example **Archived** section:

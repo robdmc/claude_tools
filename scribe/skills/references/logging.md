@@ -86,7 +86,7 @@ uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ git_state.py sa
 #         2 file(s), +15/-3 lines
 ```
 
-**Step 2:** Use the Write tool to create `/tmp/scribe_entry_${CLAUDE_SESSION_ID}.md`:
+**Step 2:** Use the Write tool to create `.scribe/draft.md`:
 
 ```markdown
 ## Fixed null handling in ETL pipeline
@@ -103,7 +103,7 @@ Found that nulls originated from the 2019 migration.
 
 ```bash
 uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ entry.py write \
-  --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md \
+  --file .scribe/draft.md \
   --git abc1234 \
   --git-diff
 ```
@@ -160,7 +160,7 @@ Found that nulls originated from the 2019 migration.
 
 ```bash
 uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ git_entry.py commit \
-  --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md
+  --file .scribe/draft.md
 # Output: Created commit: def5678
 #         [main def5678] Fixed null handling in ETL pipeline
 #          3 files changed, 25 insertions(+), 8 deletions(-)
@@ -170,7 +170,7 @@ uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ git_entry.py co
 
 ```bash
 uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ entry.py write \
-  --file /tmp/scribe_entry_${CLAUDE_SESSION_ID}.md \
+  --file .scribe/draft.md \
   --git def5678 \
   --git-mode git-entry
 ```
