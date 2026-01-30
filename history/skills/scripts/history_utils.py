@@ -254,6 +254,60 @@ def get_session_modified_time(
     return None
 
 
+def get_session_summaries(session_ids: list[str]) -> dict[str, dict]:
+    """Get summaries for multiple sessions efficiently.
+
+    Scans all session indexes once and returns metadata for requested sessions.
+
+    Args:
+        session_ids: List of session IDs (can be partial prefixes)
+
+    Returns:
+        Dict mapping session_id to session metadata dict with keys:
+        - summary: The session summary text
+        - project_path: Decoded project path
+        - lastModified: Timestamp in ms
+    """
+    projects_dir = get_claude_projects_dir()
+    if not projects_dir.exists():
+        return {}
+
+    results = {}
+    remaining = set(session_ids)
+
+    for index_file in projects_dir.glob("*/sessions-index.json"):
+        if not remaining:
+            break
+
+        project_dir = index_file.parent
+        project_path = decode_project_path(project_dir.name)
+
+        try:
+            sessions, original_path = load_sessions_index(index_file)
+        except (json.JSONDecodeError, IOError):
+            continue
+
+        for session in sessions:
+            sid = session.get("sessionId", "")
+
+            # Check if this session matches any we're looking for
+            matched_id = None
+            for wanted_id in list(remaining):
+                if sid == wanted_id or sid.startswith(wanted_id):
+                    matched_id = wanted_id
+                    break
+
+            if matched_id:
+                results[sid] = {
+                    "summary": session.get("summary", ""),
+                    "project_path": original_path or project_path,
+                    "lastModified": session.get("lastModified", 0),
+                }
+                remaining.discard(matched_id)
+
+    return results
+
+
 def extract_text_from_content(content: Union[str, list]) -> str:
     """Extract plain text from message content.
 

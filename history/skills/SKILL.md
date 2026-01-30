@@ -35,7 +35,9 @@ When user asks `/history help`, display:
 | `explore <id>` | Explore a session (summary, files, grep) |
 | `export <id>` | Export session to Markdown/JSON |
 | `import <id>` | Import session for /resume |
-| `index` / `sync` | Build/update search index |
+| `index` / `sync` | Build/update search index (incremental) |
+| `index rebuild` | Clear and rebuild entire index from scratch |
+| `summarize <id>` | Get detailed narrative summary of a session |
 | `help` | Show this help |
 
 ## Progressive Disclosure Flow
@@ -207,6 +209,9 @@ uv run --directory {SKILL_DIR}/scripts search_history.py "error handling" --type
 # Show full text content (not truncated)
 uv run --directory {SKILL_DIR}/scripts search_history.py "testing patterns" --full
 
+# Group results by session with summaries
+uv run --directory {SKILL_DIR}/scripts search_history.py "authentication" --group
+
 # Show database statistics
 uv run --directory {SKILL_DIR}/scripts search_history.py --stats
 ```
@@ -218,11 +223,14 @@ Arguments:
 - `--session`, `-s`: Filter by session ID
 - `--type`, `-t`: Filter by content type: `user_prompt`, `assistant_text`, `tool_use`, `tool_result`
 - `--full`, `-f`: Show full text content (not truncated)
+- `--group`, `-g`: Group results by session and show session summaries
 - `--stats`: Show database statistics
 - `--json`, `-j`: Output JSON format
 - `--db-path`: Custom database path
 
 **Note:** Requires indexed data. Run `index_history.py` first.
+
+**Search results include timestamps.** Each result has metadata with the original message timestamp. When the user asks about dates/timing (e.g., "when did I...", "what date...", "how old is..."), the timestamp is already in the search output - no need for additional lookups.
 
 ### export_session.py
 
@@ -278,6 +286,9 @@ When the user asks naturally, interpret and run the appropriate script:
 | "what conversations relate to X" | search_history.py "X" |
 | "search my prompts about X" | search_history.py "X" --type user_prompt |
 | "search assistant responses about X" | search_history.py "X" --type assistant_text |
+| "when did I talk about X" / "what date" | search_history.py "X" (timestamps are in output) |
+| "summarize sessions about X" | search_history.py "X" --group |
+| "which sessions mention X" | search_history.py "X" --group |
 | "index my history" / "build index" | index_history.py |
 | "sync" / "sync history" | index_history.py |
 | "reindex everything" / "rebuild index" | index_history.py --rebuild |
@@ -355,11 +366,11 @@ User: /history search how to set up user authentication
 Claude: [runs search_history.py "how to set up user authentication"]
         Found 10 results. Top matches:
 
-        1. Session: 8f3a2c1e... | Project: web-app
+        1. Session: 8f3a2c1e... | Project: web-app | Date: 2026-01-15
            Type: user_prompt | Score: 0.8734
            Content: Can you help me implement JWT-based login for my Express app?
 
-        2. Session: 5d7b9f2a... | Project: api-server
+        2. Session: 5d7b9f2a... | Project: api-server | Date: 2026-01-10
            Type: assistant_text | Score: 0.8521
            Content: Here's how to add authentication middleware using Passport.js...
 
@@ -410,6 +421,70 @@ Claude: [runs index_history.py --stats]
           tool_use: 287
           tool_result: 146
 ```
+
+## Narrative Summaries (Subagent)
+
+When the user asks for a "detailed summary", "longer summary", or "what happened in session X" and wants more than a quick overview, spawn a subagent to generate narrative summaries. This keeps the raw session data out of the main context.
+
+**Single session:**
+```
+User: "give me a detailed summary of session 5fe6f22c"
+
+Claude: [spawns Task agent with prompt:]
+  "Read session 5fe6f22c using:
+   - python /path/to/explore_session.py 5fe6f22c --summary
+   - python /path/to/explore_session.py 5fe6f22c --user-prompts
+
+   Write a 2-3 paragraph narrative summary of what the user was trying to accomplish,
+   what was done, and the outcome. Return ONLY the formatted summary, not raw tool output."
+```
+
+**Multiple sessions - USE PARALLEL AGENTS:**
+When summarizing multiple sessions, spawn one agent per session IN PARALLEL (multiple Task calls in a single message). This is faster and keeps each agent's context focused.
+
+```
+User: "summarize all those sessions about keyboard buttons"
+
+Claude: [spawns multiple Task agents in parallel, one per session:]
+
+Task 1: "Summarize session 5fe6f22c..."
+Task 2: "Summarize session 5719c0c1..."
+Task 3: "Summarize session b36a1c54..."
+(all in the same message)
+```
+
+Each agent should return a formatted summary using bullets for scannability:
+```
+**Session <id> (<date> <start_time> - <end_time>) - <title>**
+- **Goal:** One sentence - what was the user trying to accomplish?
+- **What happened:**
+  - Key event/attempt 1
+  - Key event/attempt 2
+  - Key discovery or pivot (if any)
+- **Outcome:** What was the end result? (committed, abandoned, created plan, etc.)
+```
+
+The subagent should extract the time range from the first and last messages in the --summary output.
+
+The subagent should use `subagent_type: "general-purpose"` and has access to the explore_session.py script via Bash.
+
+**Prompt limits:** Default to `--limit 20` on `--user-prompts`. User can request more detail:
+
+| User says | Action |
+|-----------|--------|
+| "summarize session X" | Default: `--limit 20` |
+| "full summary of X" / "detailed summary" / "with all prompts" | No limit: omit `--limit` |
+| "brief summary of X" | Shorter: `--limit 10` |
+
+For multiple sessions, ask before spawning: "Summarize with default detail or full detail?"
+
+**Natural language triggers:**
+| User Query | Action |
+|------------|--------|
+| "detailed summary of session X" | Spawn subagent for single session |
+| "what really happened in session X" | Spawn subagent for single session |
+| "summarize those sessions" / "summarize all of them" | Spawn subagent for multiple sessions |
+| "give me longer summaries" | Spawn subagent for sessions from previous search |
 
 ## Token Budget Guidelines
 

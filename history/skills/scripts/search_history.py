@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Optional
 
 from embedder import embed_text
-from history_utils import decode_project_path
+from history_utils import get_session_summaries
 from lance_db import HistoryDB, SearchResult
 
 
@@ -39,8 +39,15 @@ def format_result_text(result: SearchResult, show_full: bool = False) -> str:
     # Clean up whitespace
     text = " ".join(text.split())
 
+    # Extract timestamp if available
+    timestamp = ""
+    if result.metadata and result.metadata.get("timestamp"):
+        ts = result.metadata["timestamp"]
+        # Format: 2026-01-17T18:06:35.005Z -> 2026-01-17
+        timestamp = ts[:10] if len(ts) >= 10 else ts
+
     lines = [
-        f"Session: {session_short}... | Project: {project_name}",
+        f"Session: {session_short}... | Project: {project_name} | Date: {timestamp or 'unknown'}",
         f"Type: {result.chunk_type} | Score: {result.score:.4f}",
         f"Content: {text}",
     ]
@@ -49,8 +56,6 @@ def format_result_text(result: SearchResult, show_full: bool = False) -> str:
     if result.metadata:
         if result.metadata.get("tool_name"):
             lines.append(f"Tool: {result.metadata['tool_name']}")
-        if result.metadata.get("modified"):
-            lines.append(f"Modified: {result.metadata['modified'][:10]}")
 
     return "\n".join(lines)
 
@@ -128,6 +133,81 @@ def search_history(
         "total": len(result_dicts),
         "results": result_dicts,
     }
+
+
+def format_grouped_output(results: dict, show_full: bool = False) -> str:
+    """Format search results grouped by session with summaries.
+
+    Args:
+        results: Dict with query and results list
+        show_full: If True, show full text content
+
+    Returns:
+        Formatted string output grouped by session
+    """
+    query = results.get("query", "")
+    total = results.get("total", 0)
+    matches = results.get("results", [])
+    error = results.get("error")
+
+    if error:
+        return f"Error: {error}"
+
+    if total == 0:
+        return f"No results found for query: '{query}'"
+
+    # Group results by session_id
+    sessions = {}
+    for match in matches:
+        sid = match.get("session_id", "unknown")
+        if sid not in sessions:
+            sessions[sid] = {
+                "matches": [],
+                "earliest_date": None,
+            }
+        sessions[sid]["matches"].append(match)
+
+        # Track earliest date for this session's matches
+        ts = match.get("metadata", {}).get("timestamp", "")
+        if ts:
+            date = ts[:10]
+            if not sessions[sid]["earliest_date"] or date < sessions[sid]["earliest_date"]:
+                sessions[sid]["earliest_date"] = date
+
+    # Look up session summaries
+    session_ids = list(sessions.keys())
+    summaries = get_session_summaries(session_ids)
+
+    # Build output
+    lines = [
+        f"Found {total} result(s) across {len(sessions)} session(s) for: '{query}'",
+        "",
+    ]
+
+    for sid, data in sessions.items():
+        # Get summary info
+        summary_info = summaries.get(sid, {})
+        summary = summary_info.get("summary", "No summary available")
+        date = data["earliest_date"] or "unknown"
+
+        # Truncate summary if too long
+        if len(summary) > 80:
+            summary = summary[:77] + "..."
+
+        lines.append(f"Session {sid[:8]}... ({date}) - \"{summary}\"")
+
+        # List matching content
+        for match in data["matches"]:
+            text = match.get("text", "")
+            if not show_full and len(text) > 100:
+                text = text[:97] + "..."
+            text = " ".join(text.split())  # Clean whitespace
+            chunk_type = match.get("chunk_type", "")
+            lines.append(f"  [{chunk_type}] {text}")
+
+        lines.append("")
+
+    return "\n".join(lines)
 
 
 def format_human_readable(results: dict, show_full: bool = False) -> str:
@@ -215,6 +295,11 @@ def main():
         help="Show full text content (not truncated)"
     )
     parser.add_argument(
+        "--group", "-g",
+        action="store_true",
+        help="Group results by session and show session summaries"
+    )
+    parser.add_argument(
         "--json", "-j",
         action="store_true",
         help="Output JSON format"
@@ -272,6 +357,8 @@ def main():
     # Output results
     if args.json:
         print(json.dumps(results, indent=2))
+    elif args.group:
+        print(format_grouped_output(results, show_full=args.full))
     else:
         print(format_human_readable(results, show_full=args.full))
 
