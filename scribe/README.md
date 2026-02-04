@@ -5,7 +5,7 @@ Scribe is a Claude Code skill that keeps a running narrative log of your explora
 ## What It Does
 
 - **Logs your work** — Narrative entries describing what you did, what worked, what didn't
-- **Tracks git state** — Captures commit hash and code diffs with each entry
+- **Tracks git state** — Captures commit hash with each entry
 - **Creates git commits** — Optionally commits your changes with the entry as the message
 - **Snapshots files** — Archives versions of files at meaningful moments
 - **Answers questions** — "What did we try for the null problem?" "Where did we leave off?"
@@ -26,8 +26,7 @@ Place the `scribe/` folder in your Claude Code skills directory:
 ~/.claude/skills/scribe/
 ├── SKILL.md
 ├── references/
-│   ├── logging.md
-│   ├── archiving.md
+│   ├── entries.md
 │   ├── querying.md
 │   └── recovery.md
 └── scripts/
@@ -40,7 +39,7 @@ Place the `scribe/` folder in your Claude Code skills directory:
     └── pyproject.toml
 ```
 
-On first use, the scribe creates a `.scribe/` directory in your project and adds it to `.gitignore`.
+On first use, the scribe creates a `.scribe/` directory in your project.
 
 ## Usage
 
@@ -55,7 +54,7 @@ Just talk to the scribe naturally during your Claude Code session:
 "scribe, quick log: fixed the off-by-one error"
 ```
 
-The scribe proposes an entry for you to review before writing. It automatically captures the current git commit hash and saves a diff of your Python changes.
+The scribe proposes an entry for you to review before writing. It automatically captures the current git commit hash.
 
 ### Git Entries (Commit Mode)
 
@@ -114,7 +113,7 @@ Restored files appear next to the current version with an underscore prefix (e.g
 "scribe, re-archive with the correct file"
 ```
 
-If an entry has errors or you want to change it, the scribe can show, edit, replace, or delete the most recent entry. Deleting an entry also removes any files it archived and its associated diff file.
+If an entry has errors or you want to change it, the scribe can show, edit, replace, or delete the most recent entry. Deleting an entry also removes any files it archived.
 
 ### Slash Commands
 
@@ -133,24 +132,22 @@ The scribe creates a `.scribe/` directory in your project:
 
 ```
 .scribe/
-├── 2026-01-23.md          # Daily log file
+├── 2026-01-23.md          # Daily log file (tracked in git)
 ├── 2026-01-24.md          # One file per day
 ├── assets/
 │   ├── 2026-01-23-14-35-clustering.ipynb
 │   └── 2026-01-24-09-15-etl.py
-└── diffs/
-    ├── 2026-01-23-14-35.diff
-    └── 2026-01-23-16-20.diff
+└── diffs/                 # Legacy (not created for new entries)
 ```
 
-**Log files** are append-only markdown. Each entry has YAML frontmatter with ID, timestamp, title, git hash, and diff path.
+**Log files** are append-only markdown, tracked in git. Each entry has YAML frontmatter with ID, timestamp, title, and git hash.
 
-**Assets** are snapshots of files, named with the entry ID that archived them.
+**Assets** are snapshots of files, named with the entry ID that archived them. These are gitignored.
 
-**Diffs** are unified diffs of Python files (by default) at the time of each entry.
-
-The scribe also adds these patterns to `.gitignore`:
-- `.scribe/` — the log directory
+The `.gitignore` is automatically configured:
+- `.scribe/assets/` — archived files
+- `.scribe/diffs/` — legacy diffs
+- `.scribe/__*__.md` — staging files
 - `_20*-*` — restored files (underscore prefix)
 
 ## Example Entry
@@ -161,7 +158,6 @@ id: 2026-01-23-14-35
 timestamp: "14:35"
 title: Fixed null handling in ETL pipeline
 git: abc1234
-diff: diffs/2026-01-23-14-35.diff
 ---
 ## 14:35 — Fixed null handling in ETL pipeline
 
@@ -223,22 +219,11 @@ The scribe automatically validates entries after writing. Validation checks:
 
 - Every entry has a valid ID
 - Archived files referenced in entries actually exist
-- Diff files referenced in entries actually exist
 - Git entries have a commit hash
 - Related references point to valid entry IDs
-- No orphaned assets or diffs
+- No orphaned assets
 
 If validation finds issues, the scribe will tell you and help fix them.
-
-## Diff Extensions
-
-By default, diffs only include `.py` files to avoid bloating the diffs directory with data files. You can customize this when needed:
-
-```
-"scribe, log this and include SQL in the diff"
-```
-
-The scribe will use `--ext "py,sql"` when saving the diff.
 
 ## Tips
 
@@ -265,10 +250,10 @@ The skill consists of:
 |------|---------|
 | `SKILL.md` | Instructions for Claude |
 | `references/*.md` | Detailed examples and edge cases |
-| `scripts/entry.py` | Writes and edits log entries |
+| `scripts/entry.py` | Prepares, finalizes, and edits log entries |
 | `scripts/assets.py` | Archives and restores file snapshots |
 | `scripts/validate.py` | Checks log consistency |
-| `scripts/git_state.py` | Captures commit hash and saves diffs |
+| `scripts/git_state.py` | Captures commit hash |
 | `scripts/git_entry.py` | Creates git commits with entry as message |
 | `scripts/common.py` | Shared utilities |
 | `scripts/pyproject.toml` | Python dependencies (pyyaml) |
