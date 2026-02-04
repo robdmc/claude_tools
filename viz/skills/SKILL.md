@@ -9,6 +9,16 @@ allowed-tools: Read, Write(.viz/_draft.py), Glob(.viz/*), Grep(.viz/*), Bash(rm 
 > **CRITICAL: Never use heredocs (`<< 'EOF'`) to pass scripts to viz_runner.py.**
 > Always use the Write tool to create `.viz/_draft.py`, then pass `--file .viz/_draft.py` to the runner.
 
+> **CRITICAL: Always run viz in a subagent.** Use the Task tool to spawn a subagent for visualization work. This prevents blocking the main conversation thread while plots generate.
+>
+> ```
+> Task tool:
+>   subagent_type: general-purpose
+>   prompt: "Use the viz skill to [create/regenerate] a plot of X. Data is at /path/to/data.parquet..."
+> ```
+>
+> Do NOT run viz_runner.py directly from the main thread.
+
 ## Contents
 
 - [Purpose](#purpose)

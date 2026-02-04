@@ -81,7 +81,6 @@ def extract_entries(log_file: Path) -> list[dict]:
                 time = fm_data.get("timestamp", "")
                 git_hash = fm_data.get("git")
                 git_mode = fm_data.get("mode")
-                diff_path = fm_data.get("diff")
                 body = entry_content[fm_match.end():]
 
                 archived = ARCHIVE_PATTERN.findall(body)
@@ -99,7 +98,6 @@ def extract_entries(log_file: Path) -> list[dict]:
                     "related": related,
                     "git": git_hash,
                     "mode": git_mode,
-                    "diff": diff_path,
                     "format": "frontmatter",
                 })
         else:
@@ -128,7 +126,6 @@ def extract_entries(log_file: Path) -> list[dict]:
                     "related": related,
                     "git": None,
                     "mode": None,
-                    "diff": None,
                     "format": "legacy",
                 })
 
@@ -142,7 +139,6 @@ def validate(scribe_dir: Path, since_id: str | None = None) -> tuple[list[str], 
     """
     errors = []
     assets_dir = scribe_dir / "assets"
-    diffs_dir = scribe_dir / "diffs"
 
     log_files = [f for f in scribe_dir.iterdir() if LOG_FILE_PATTERN.match(f.name)]
 
@@ -181,22 +177,13 @@ def validate(scribe_dir: Path, since_id: str | None = None) -> tuple[list[str], 
                         f"✗ {log_file.name} [{entry['time']}] — references {asset_path} but file not found"
                     )
 
-            # Check diff file exists if referenced
-            if entry["diff"]:
-                # diff path is relative like "diffs/2026-01-27-14-35.diff"
-                diff_file = scribe_dir / entry["diff"]
-                if not diff_file.exists():
-                    errors.append(
-                        f"✗ {log_file.name} [{entry['time']}] — references {entry['diff']} but file not found"
-                    )
-
             # Check git-entry has commit hash
             if entry["mode"] == "git-entry" and not entry["git"]:
                 errors.append(
                     f"✗ {log_file.name} [{entry['time']}] — git-entry mode but no git commit hash"
                 )
 
-    # For full validation, also check Related references and orphaned assets/diffs
+    # For full validation, also check Related references and orphaned assets
     if not since_id:
         all_entry_ids = {entry["id"] for entry in all_entries if entry["id"]}
 
@@ -218,21 +205,6 @@ def validate(scribe_dir: Path, since_id: str | None = None) -> tuple[list[str], 
                 if asset_file.name not in referenced_assets:
                     errors.append(
                         f"✗ Orphaned asset: {asset_file.name} — no entry references it"
-                    )
-
-        # Check for orphaned diffs
-        if diffs_dir.exists():
-            referenced_diffs = set()
-            for entry in all_entries:
-                if entry["diff"]:
-                    # Extract just the filename from path like "diffs/2026-01-27-14-35.diff"
-                    diff_name = Path(entry["diff"]).name
-                    referenced_diffs.add(diff_name)
-
-            for diff_file in diffs_dir.iterdir():
-                if diff_file.name not in referenced_diffs:
-                    errors.append(
-                        f"✗ Orphaned diff: {diff_file.name} — no entry references it"
                     )
 
     return errors, len(all_entries)

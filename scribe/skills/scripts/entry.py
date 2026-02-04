@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Manage scribe log entries — write entries with automatic ID generation.
+"""Manage scribe log entries — prepare, finalize, and edit entries.
 
 Requires Python 3.9+ (uses built-in generic types).
 """
@@ -7,6 +7,7 @@ Requires Python 3.9+ (uses built-in generic types).
 import argparse
 import re
 import shutil
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -17,7 +18,7 @@ from common import (
     ENTRY_ID_PATTERN,
     ENTRY_ID_COMMENT_PATTERN,
     FRONTMATTER_PATTERN,
-    require_scribe_dir,
+    find_scribe_dir,
 )
 
 # Pre-compiled regex patterns for performance
@@ -25,9 +26,67 @@ HEADER_WITH_TIME_PATTERN = re.compile(r"^## (\d{2}:\d{2}) — .+$", re.MULTILINE
 HEADER_SIMPLE_PATTERN = re.compile(r"^## (.+)$", re.MULTILINE)
 LOG_FILE_PATTERN = re.compile(r"^\d{4}-\d{2}-\d{2}\.md$")
 TIME_FORMAT_PATTERN = re.compile(r"^\d{2}:\d{2}$")
+STAGING_FILE_PATTERN = re.compile(r"^__(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}(?:-\d{2,})?)__\.md$")
 
 # Pattern for extracting ID from YAML frontmatter
 FRONTMATTER_ID_PATTERN = re.compile(r"^id:\s*(\d{4}-\d{2}-\d{2}-\d{2}-\d{2}(?:-\d{2,})?)\s*$", re.MULTILINE)
+
+# Placeholders
+TITLE_PLACEHOLDER = "__TITLE__"
+BODY_PLACEHOLDER = "__BODY__"
+
+
+def run_git(*args: str) -> tuple[int, str, str]:
+    """Run a git command and return (returncode, stdout, stderr)."""
+    result = subprocess.run(
+        ["git", *args],
+        capture_output=True,
+        text=True,
+    )
+    return result.returncode, result.stdout.strip(), result.stderr.strip()
+
+
+def get_git_hash() -> str | None:
+    """Get the current HEAD commit hash (short form)."""
+    returncode, stdout, _ = run_git("rev-parse", "--short", "HEAD")
+    if returncode != 0:
+        return None
+    return stdout
+
+
+def ensure_scribe_dir() -> Path:
+    """Ensure .scribe directory exists with proper structure and .gitignore."""
+    scribe_dir = Path.cwd() / ".scribe"
+
+    # Create directories
+    scribe_dir.mkdir(exist_ok=True)
+    (scribe_dir / "assets").mkdir(exist_ok=True)
+    # Keep diffs dir for backwards compatibility (legacy files)
+    (scribe_dir / "diffs").mkdir(exist_ok=True)
+
+    # Update .gitignore
+    gitignore_path = Path.cwd() / ".gitignore"
+    patterns_needed = [
+        ".scribe/diffs/",
+        ".scribe/assets/",
+        ".scribe/__*__.md",
+        "_20*-*",
+    ]
+
+    existing_patterns = set()
+    if gitignore_path.exists():
+        existing_patterns = set(gitignore_path.read_text().splitlines())
+
+    patterns_to_add = [p for p in patterns_needed if p not in existing_patterns]
+
+    if patterns_to_add:
+        with open(gitignore_path, "a") as f:
+            if existing_patterns and not gitignore_path.read_text().endswith("\n"):
+                f.write("\n")
+            for pattern in patterns_to_add:
+                f.write(f"{pattern}\n")
+
+    return scribe_dir
 
 
 def get_existing_ids(log_file: Path) -> set[str]:
@@ -59,54 +118,38 @@ def generate_entry_id(log_file: Path, time_str: str) -> str:
     return f"{base_id}-{suffix:02d}"
 
 
-def build_frontmatter(
-    entry_id: str,
-    timestamp: str,
-    title: str,
-    git_hash: str | None = None,
-    git_diff: str | None = None,
-    git_mode: str | None = None,
-) -> str:
-    """Build YAML frontmatter block for an entry."""
-    data = {
-        "id": entry_id,
-        "timestamp": timestamp,
-        "title": title,
-    }
-
-    if git_hash:
-        data["git"] = git_hash
-
-    if git_diff:
-        data["diff"] = git_diff
-
-    if git_mode:
-        data["mode"] = git_mode
-
-    # Use block style for clean output
-    yaml_str = yaml.dump(data, default_flow_style=False, sort_keys=False, allow_unicode=True)
-    return f"---\n{yaml_str}---\n"
+def find_staging_file(scribe_dir: Path) -> Path | None:
+    """Find the staging file in .scribe/ directory."""
+    for f in scribe_dir.iterdir():
+        if STAGING_FILE_PATTERN.match(f.name):
+            return f
+    return None
 
 
-def inject_frontmatter(
-    entry: str,
-    entry_id: str,
-    timestamp: str,
-    title: str,
-    git_hash: str | None = None,
-    git_diff: str | None = None,
-    git_mode: str | None = None,
-) -> str:
-    """Inject YAML frontmatter at the beginning of an entry."""
-    frontmatter = build_frontmatter(
-        entry_id=entry_id,
-        timestamp=timestamp,
-        title=title,
-        git_hash=git_hash,
-        git_diff=git_diff,
-        git_mode=git_mode,
-    )
-    return frontmatter + entry
+def lookup_entry_title(scribe_dir: Path, entry_id: str) -> str | None:
+    """Look up the title for an entry ID."""
+    # Extract date from ID
+    date_part = entry_id[:10]  # YYYY-MM-DD
+    log_file = scribe_dir / f"{date_part}.md"
+
+    if not log_file.exists():
+        return None
+
+    content = log_file.read_text()
+
+    # Try frontmatter format
+    pattern = re.compile(rf"id:\s*{re.escape(entry_id)}\s*\n.*?title:\s*(.+?)\s*\n", re.DOTALL)
+    match = pattern.search(content)
+    if match:
+        return match.group(1).strip()
+
+    # Try legacy format
+    legacy_pattern = re.compile(rf"^## (\d{{2}}:\d{{2}}) — (.+)$\n<!-- id: {re.escape(entry_id)} -->", re.MULTILINE)
+    match = legacy_pattern.search(content)
+    if match:
+        return match.group(2).strip()
+
+    return None
 
 
 def find_latest_entry(scribe_dir: Path) -> tuple[Path, str | None, str, int, int] | None:
@@ -210,107 +253,309 @@ def quick_validate(_scribe_dir: Path, entry_id: str) -> list[str]:
     return errors
 
 
-def cmd_write(args):
-    """Write an entry to today's log file."""
-    scribe_dir = require_scribe_dir()
+def cmd_prepare(args):
+    """Create a staging file for a new entry."""
+    scribe_dir = ensure_scribe_dir()
 
-    # Read entry from file or stdin
-    if args.file:
-        file_path = Path(args.file)
-        if not file_path.exists():
-            print(f"Error: File not found: {args.file}", file=sys.stderr)
-            sys.exit(1)
-        entry = file_path.read_text().strip()
-        # Remove the temp file so next write doesn't show a diff
-        file_path.unlink()
-    else:
-        entry = sys.stdin.read().strip()
-
-    if not entry:
-        print("Error: No entry provided (use --file or pipe via stdin)", file=sys.stderr)
+    # Check for existing staging file
+    existing = find_staging_file(scribe_dir)
+    if existing:
+        print(f"Error: Pending entry exists: {existing.name}", file=sys.stderr)
+        print("Run 'finalize' to complete it or 'abort' to discard it.", file=sys.stderr)
         sys.exit(1)
 
-    # Get current time
+    # Get current time and generate entry ID
     time_str = datetime.now().strftime("%H:%M")
+    today = datetime.now().strftime("%Y-%m-%d")
+    log_file = scribe_dir / f"{today}.md"
+    entry_id = generate_entry_id(log_file, time_str)
 
-    # Check if entry already has time in header (legacy format)
-    legacy_match = HEADER_WITH_TIME_PATTERN.search(entry)
-    if legacy_match:
-        time_str = legacy_match.group(1)
-        header_match = HEADER_WITH_TIME_PATTERN.search(entry)
-        # Extract title from "## HH:MM — Title"
-        full_header = header_match.group(0) if header_match else ""
-        title = full_header.split(" — ", 1)[1] if " — " in full_header else "Untitled"
-    else:
-        header_match = HEADER_SIMPLE_PATTERN.search(entry)
-        if not header_match:
-            print("Error: Entry must start with '## Title'", file=sys.stderr)
+    # Get git hash
+    git_hash = get_git_hash()
+
+    # Build pending metadata
+    pending = {
+        "git_entry": args.git_entry,
+    }
+
+    # Process archives
+    archives = []
+    if args.archive:
+        for file_desc in args.archive:
+            if ":" in file_desc:
+                file_path, desc = file_desc.split(":", 1)
+            else:
+                file_path = file_desc
+                desc = ""
+            archives.append([file_path.strip(), desc.strip()])
+    if archives:
+        pending["archives"] = archives
+
+    # Build frontmatter
+    frontmatter_data = {
+        "id": entry_id,
+        "timestamp": time_str,
+        "title": TITLE_PLACEHOLDER,
+    }
+    if git_hash:
+        frontmatter_data["git"] = git_hash
+    frontmatter_data["_pending"] = pending  # type: ignore[assignment]
+
+    frontmatter = yaml.dump(frontmatter_data, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    # Build entry body sections
+    sections = []
+
+    # Files touched section
+    if args.touched:
+        touched_lines = []
+        for file_desc in args.touched:
+            if ":" in file_desc:
+                file_path, desc = file_desc.split(":", 1)
+                touched_lines.append(f"- `{file_path.strip()}` — {desc.strip()}")
+            else:
+                touched_lines.append(f"- `{file_desc.strip()}`")
+        sections.append("**Files touched:**\n" + "\n".join(touched_lines))
+
+    # Archived section
+    if archives:
+        archive_lines = []
+        for file_path, desc in archives:
+            filename = Path(file_path).name
+            asset_name = f"{entry_id}-{filename}"
+            line = f"- `{file_path}` → [`{asset_name}`](assets/{asset_name})"
+            if desc:
+                line += f" — {desc}"
+            archive_lines.append(line)
+        sections.append("**Archived:**\n" + "\n".join(archive_lines))
+
+    # Related section
+    if args.related:
+        related_lines = []
+        for related_id in args.related:
+            title = lookup_entry_title(scribe_dir, related_id)
+            if title:
+                related_lines.append(f"{related_id} — {title}")
+            else:
+                related_lines.append(related_id)
+        sections.append("**Related:** " + ", ".join(related_lines))
+
+    # Build full entry
+    sections_text = "\n\n".join(sections) if sections else ""
+
+    entry_content = f"""---
+{frontmatter}---
+## {time_str} — {TITLE_PLACEHOLDER}
+
+{BODY_PLACEHOLDER}
+
+{sections_text}
+
+---
+"""
+
+    # Write staging file
+    staging_file = scribe_dir / f"__{entry_id}__.md"
+    staging_file.write_text(entry_content)
+
+    print(staging_file)
+
+
+def cmd_finalize(_args):
+    """Finalize a pending entry: validate, archive, append to daily log, optionally commit."""
+    scribe_dir = find_scribe_dir()
+    if not scribe_dir:
+        print("Error: .scribe directory not found", file=sys.stderr)
+        sys.exit(1)
+
+    # Find staging file
+    staging_file = find_staging_file(scribe_dir)
+    if not staging_file:
+        print("Error: No pending entry. Run 'prepare' first.", file=sys.stderr)
+        sys.exit(1)
+
+    content = staging_file.read_text()
+
+    # Check for placeholders
+    if TITLE_PLACEHOLDER in content:
+        print(f"Error: Title placeholder ({TITLE_PLACEHOLDER}) not replaced", file=sys.stderr)
+        sys.exit(1)
+    if BODY_PLACEHOLDER in content:
+        print(f"Error: Body placeholder ({BODY_PLACEHOLDER}) not replaced", file=sys.stderr)
+        sys.exit(1)
+
+    # Parse frontmatter
+    fm_match = FRONTMATTER_PATTERN.match(content)
+    if not fm_match:
+        print("Error: Invalid staging file (no frontmatter)", file=sys.stderr)
+        sys.exit(1)
+
+    fm_data = yaml.safe_load(fm_match.group(1)) or {}
+    entry_id = fm_data.get("id")
+    pending = fm_data.pop("_pending", {})
+
+    git_entry_mode = pending.get("git_entry", False)
+    archives = pending.get("archives", [])
+
+    # If git-entry mode, create commit first
+    if git_entry_mode:
+        # Stage modified tracked files
+        returncode, _, stderr = run_git("add", "-u")
+        if returncode != 0:
+            print(f"Error staging files: {stderr}", file=sys.stderr)
             sys.exit(1)
 
-        title = header_match.group(1)
-        entry = re.sub(r"^## .+$", f"## {time_str} — {title}", entry, count=1, flags=re.MULTILINE)
+        # Check if there's anything staged
+        returncode, _, _ = run_git("diff", "--cached", "--quiet")
+        if returncode == 0:
+            print("Error: No changes staged for git-entry mode", file=sys.stderr)
+            sys.exit(1)
 
-    # Determine log file
+        # Get title for commit message
+        title = fm_data.get("title", "Scribe entry")
+
+        # Create commit
+        commit_message = f"{title}\n\n{content}"
+        returncode, stdout, stderr = run_git("commit", "-m", commit_message)
+        if returncode != 0:
+            print(f"Error creating commit: {stderr}", file=sys.stderr)
+            sys.exit(1)
+
+        # Get new commit hash
+        new_hash = get_git_hash()
+        if new_hash:
+            fm_data["git"] = new_hash
+        fm_data["mode"] = "git-entry"
+
+        print(f"Created commit: {new_hash}")
+
+    # Archive files
+    if archives:
+        assets_dir = scribe_dir / "assets"
+        assets_dir.mkdir(exist_ok=True)
+
+        for file_path, _desc in archives:
+            src = Path(file_path)
+            if not src.exists():
+                print(f"Warning: File not found for archive: {file_path}", file=sys.stderr)
+                continue
+
+            filename = src.name
+            asset_name = f"{entry_id}-{filename}"
+            dest = assets_dir / asset_name
+
+            if dest.exists():
+                print(f"Warning: Asset already exists: {asset_name}", file=sys.stderr)
+                continue
+
+            shutil.copy(src, dest)
+            print(f"Archived: {asset_name}")
+
+    # Rebuild frontmatter without _pending
+    new_frontmatter = yaml.dump(fm_data, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    # Replace frontmatter in content
+    body_after_frontmatter = content[fm_match.end():]
+    final_content = f"---\n{new_frontmatter}---\n{body_after_frontmatter}"
+
+    # Append to daily log
     today = datetime.now().strftime("%Y-%m-%d")
     log_file = scribe_dir / f"{today}.md"
 
-    # Generate unique entry ID
-    entry_id = generate_entry_id(log_file, time_str)
-
-    # Build git-related paths
-    git_diff_path = f"diffs/{entry_id}.diff" if args.git_diff else None
-
-    # Inject frontmatter into entry
-    entry_with_frontmatter = inject_frontmatter(
-        entry=entry,
-        entry_id=entry_id,
-        timestamp=time_str,
-        title=title,
-        git_hash=args.git,
-        git_diff=git_diff_path if args.git_diff else None,
-        git_mode=args.git_mode,
-    )
-
-    # Create log file if needed
     if not log_file.exists():
         log_file.write_text(f"# {today}\n\n---\n\n")
 
-    # Append entry
     with open(log_file, "a") as f:
-        f.write(entry_with_frontmatter)
-        if not entry_with_frontmatter.endswith("\n"):
+        f.write(final_content)
+        if not final_content.endswith("\n"):
             f.write("\n")
 
-    print(f"Entry written: {entry_id}")
-
-    # Quick validation unless skipped
-    if not args.no_validate:
+    # Validate
+    if entry_id:
         errors = quick_validate(scribe_dir, entry_id)
-        if errors:
-            for error in errors:
-                print(f"Warning: {error}", file=sys.stderr)
+    else:
+        errors = ["Entry has no ID"]
+    if errors:
+        for error in errors:
+            print(f"Warning: {error}", file=sys.stderr)
+
+    # Delete staging file
+    staging_file.unlink()
+
+    print(f"Entry finalized: {entry_id}")
 
 
-def cmd_new_id(args):
-    """Generate a new entry ID for the current time (or specified time)."""
-    scribe_dir = require_scribe_dir()
-
-    time_str = args.time or datetime.now().strftime("%H:%M")
-
-    if not TIME_FORMAT_PATTERN.match(time_str):
-        print(f"Error: Invalid time format: {time_str} (expected HH:MM)", file=sys.stderr)
+def cmd_abort(_args):
+    """Abort a pending entry by deleting the staging file."""
+    scribe_dir = find_scribe_dir()
+    if not scribe_dir:
+        print("Error: .scribe directory not found", file=sys.stderr)
         sys.exit(1)
 
-    today = datetime.now().strftime("%Y-%m-%d")
-    log_file = scribe_dir / f"{today}.md"
+    staging_file = find_staging_file(scribe_dir)
+    if not staging_file:
+        print("No pending entry to abort.")
+        return
 
-    entry_id = generate_entry_id(log_file, time_str)
-    print(entry_id)
+    # Parse to get entry ID for message
+    content = staging_file.read_text()
+    fm_match = FRONTMATTER_PATTERN.match(content)
+    entry_id = None
+    if fm_match:
+        fm_data = yaml.safe_load(fm_match.group(1)) or {}
+        entry_id = fm_data.get("id")
+
+    staging_file.unlink()
+
+    if entry_id:
+        print(f"Aborted pending entry: {entry_id}")
+    else:
+        print("Aborted pending entry")
+
+
+def cmd_status(_args):
+    """Show the status of any pending entry."""
+    scribe_dir = find_scribe_dir()
+    if not scribe_dir:
+        print("No .scribe directory")
+        return
+
+    staging_file = find_staging_file(scribe_dir)
+    if not staging_file:
+        print("No pending entry")
+        return
+
+    content = staging_file.read_text()
+    fm_match = FRONTMATTER_PATTERN.match(content)
+
+    if fm_match:
+        fm_data = yaml.safe_load(fm_match.group(1)) or {}
+        entry_id = fm_data.get("id", "unknown")
+        pending = fm_data.get("_pending", {})
+
+        print(f"Pending entry: {entry_id}")
+        print(f"Staging file: {staging_file.name}")
+
+        # Check placeholder status
+        has_title = TITLE_PLACEHOLDER not in content
+        has_body = BODY_PLACEHOLDER not in content
+        print(f"Title filled: {'yes' if has_title else 'no'}")
+        print(f"Body filled: {'yes' if has_body else 'no'}")
+
+        if pending.get("git_entry"):
+            print("Mode: git-entry")
+        if pending.get("archives"):
+            print(f"Archives: {len(pending['archives'])} file(s)")
+    else:
+        print(f"Pending staging file: {staging_file.name} (invalid format)")
 
 
 def cmd_last(args):
     """Show the last entry ID from today's log."""
-    scribe_dir = require_scribe_dir()
+    scribe_dir = find_scribe_dir()
+    if not scribe_dir:
+        print("Error: .scribe directory not found", file=sys.stderr)
+        sys.exit(1)
 
     today = datetime.now().strftime("%Y-%m-%d")
     log_file = scribe_dir / f"{today}.md"
@@ -323,27 +568,21 @@ def cmd_last(args):
     last_id = sorted(existing_ids)[-1]
 
     if args.with_title:
-        content = log_file.read_text()
-        # Try frontmatter format first
-        fm_pattern = re.compile(rf"id:\s*{re.escape(last_id)}\s*\n.*?title:\s*(.+?)\s*\n", re.DOTALL)
-        fm_match = fm_pattern.search(content)
-        if fm_match:
-            print(f"{last_id} — {fm_match.group(1)}")
+        title = lookup_entry_title(scribe_dir, last_id)
+        if title:
+            print(f"{last_id} — {title}")
         else:
-            # Fall back to legacy format
-            legacy_pattern = re.compile(rf"^## (\d{{2}}:\d{{2}}) — (.+)$\n<!-- id: {re.escape(last_id)} -->", re.MULTILINE)
-            legacy_match = legacy_pattern.search(content)
-            if legacy_match:
-                print(f"{last_id} — {legacy_match.group(2)}")
-            else:
-                print(last_id)
+            print(last_id)
     else:
         print(last_id)
 
 
 def cmd_edit_latest_show(_args):
     """Display the latest entry."""
-    scribe_dir = require_scribe_dir()
+    scribe_dir = find_scribe_dir()
+    if not scribe_dir:
+        print("Error: .scribe directory not found", file=sys.stderr)
+        sys.exit(1)
 
     result = find_latest_entry(scribe_dir)
     if not result:
@@ -357,7 +596,10 @@ def cmd_edit_latest_show(_args):
 
 def cmd_edit_latest_delete(_args):
     """Delete the latest entry and its associated assets and diffs."""
-    scribe_dir = require_scribe_dir()
+    scribe_dir = find_scribe_dir()
+    if not scribe_dir:
+        print("Error: .scribe directory not found", file=sys.stderr)
+        sys.exit(1)
 
     result = find_latest_entry(scribe_dir)
     if not result:
@@ -389,7 +631,10 @@ def cmd_edit_latest_delete(_args):
 
 def cmd_edit_latest_replace(args):
     """Replace the latest entry with new content from file or stdin."""
-    scribe_dir = require_scribe_dir()
+    scribe_dir = find_scribe_dir()
+    if not scribe_dir:
+        print("Error: .scribe directory not found", file=sys.stderr)
+        sys.exit(1)
 
     result = find_latest_entry(scribe_dir)
     if not result:
@@ -431,13 +676,14 @@ def cmd_edit_latest_replace(args):
         title = header_match.group(1)
         new_entry = re.sub(r"^## .+$", f"## {time_str} — {title}", new_entry, count=1, flags=re.MULTILINE)
 
-    # For replace, we use the old entry ID but create new frontmatter
-    new_entry_with_frontmatter = inject_frontmatter(
-        entry=new_entry,
-        entry_id=old_entry_id,
-        timestamp=time_str,
-        title=title,
-    )
+    # Build frontmatter
+    fm_data = {
+        "id": old_entry_id,
+        "timestamp": time_str,
+        "title": title,
+    }
+    frontmatter = yaml.dump(fm_data, default_flow_style=False, sort_keys=False, allow_unicode=True)
+    new_entry_with_frontmatter = f"---\n{frontmatter}---\n{new_entry}"
 
     content = log_file.read_text()
     new_content = content[:start_pos] + new_entry_with_frontmatter
@@ -450,7 +696,10 @@ def cmd_edit_latest_replace(args):
 
 def cmd_edit_latest_rearchive(args):
     """Re-archive a file using the latest entry's ID."""
-    scribe_dir = require_scribe_dir()
+    scribe_dir = find_scribe_dir()
+    if not scribe_dir:
+        print("Error: .scribe directory not found", file=sys.stderr)
+        sys.exit(1)
 
     result = find_latest_entry(scribe_dir)
     if not result:
@@ -483,7 +732,10 @@ def cmd_edit_latest_rearchive(args):
 
 def cmd_edit_latest_unarchive(_args):
     """Delete all assets associated with the latest entry (but keep the entry)."""
-    scribe_dir = require_scribe_dir()
+    scribe_dir = find_scribe_dir()
+    if not scribe_dir:
+        print("Error: .scribe directory not found", file=sys.stderr)
+        sys.exit(1)
 
     result = find_latest_entry(scribe_dir)
     if not result:
@@ -508,19 +760,28 @@ def main():
     parser = argparse.ArgumentParser(description="Manage scribe log entries")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # write command
-    write_parser = subparsers.add_parser("write", help="Write an entry (from file or stdin)")
-    write_parser.add_argument("--file", help="Read entry from file instead of stdin")
-    write_parser.add_argument("--no-validate", action="store_true", help="Skip validation after write")
-    write_parser.add_argument("--git", help="Git commit hash to include in frontmatter")
-    write_parser.add_argument("--git-diff", action="store_true", help="Include diff path in frontmatter")
-    write_parser.add_argument("--git-mode", choices=["git-entry"], help="Git mode (git-entry for commit mode)")
-    write_parser.set_defaults(func=cmd_write)
+    # prepare command
+    prepare_parser = subparsers.add_parser("prepare", help="Create a staging file for a new entry")
+    prepare_parser.add_argument("--git-entry", action="store_true", help="Create a git commit when finalizing")
+    prepare_parser.add_argument("--touched", action="append", metavar="FILE:DESC",
+                                help="File touched (repeatable). Format: 'file.py:description' or just 'file.py'")
+    prepare_parser.add_argument("--archive", action="append", metavar="FILE:DESC",
+                                help="File to archive (repeatable). Format: 'file.py:description' or just 'file.py'")
+    prepare_parser.add_argument("--related", action="append", metavar="ID",
+                                help="Related entry ID (repeatable). Title is looked up automatically.")
+    prepare_parser.set_defaults(func=cmd_prepare)
 
-    # new-id command
-    new_id_parser = subparsers.add_parser("new-id", help="Generate a new entry ID")
-    new_id_parser.add_argument("--time", help="Time for the entry (HH:MM), defaults to now")
-    new_id_parser.set_defaults(func=cmd_new_id)
+    # finalize command
+    finalize_parser = subparsers.add_parser("finalize", help="Finalize the pending entry")
+    finalize_parser.set_defaults(func=cmd_finalize)
+
+    # abort command
+    abort_parser = subparsers.add_parser("abort", help="Abort the pending entry")
+    abort_parser.set_defaults(func=cmd_abort)
+
+    # status command
+    status_parser = subparsers.add_parser("status", help="Show pending entry status")
+    status_parser.set_defaults(func=cmd_status)
 
     # last command
     last_parser = subparsers.add_parser("last", help="Show the last entry ID from today")
