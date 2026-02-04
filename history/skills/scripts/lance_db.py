@@ -2,20 +2,35 @@
 """LanceDB module for Claude Code history search.
 
 Provides an interface to LanceDB for storing and searching session embeddings
-with vector similarity search. Handles database creation, document storage,
-and semantic search queries.
+with vector similarity search, full-text search, and hybrid search.
+Handles database creation, document storage, and search queries.
 """
 
 import json
 from dataclasses import dataclass
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import lancedb
 import pyarrow as pa
+from lancedb.rerankers import LinearCombinationReranker
 
 from history_utils import get_claude_projects_dir
+
+
+class SearchMode(Enum):
+    """Search mode for queries.
+
+    Attributes:
+        VECTOR: Pure vector similarity search using embeddings
+        FTS: Full-text search using keyword matching
+        HYBRID: Combined vector + FTS search with weighted reranking
+    """
+    VECTOR = "vector"
+    FTS = "fts"
+    HYBRID = "hybrid"
 
 
 # Default paths
@@ -55,7 +70,7 @@ class SearchResult:
         project_path: Path to the project
         chunk_type: Type of content matched
         text: The matched text
-        score: Similarity score (lower is better for L2 distance)
+        score: Similarity score (lower is better for L2 distance, higher for relevance)
         metadata: Additional metadata
     """
     id: str
@@ -71,12 +86,14 @@ class HistoryDB:
     """Interface to LanceDB for storing and searching session documents.
 
     Handles database connection, table creation, document storage,
-    and vector similarity search.
+    and vector similarity search, full-text search, and hybrid search.
 
     Example:
         >>> db = HistoryDB()
         >>> db.add_documents([doc1, doc2])
         >>> results = db.search(query_embedding, limit=5)
+        >>> # Or use hybrid search
+        >>> results = db.search(query_embedding, query_text="keyword", mode=SearchMode.HYBRID, limit=5)
     """
 
     def __init__(
@@ -95,6 +112,7 @@ class HistoryDB:
         self.table_name = table_name
         self._db: Optional[lancedb.DBConnection] = None
         self._table: Optional[lancedb.table.Table] = None
+        self._fts_index_created: bool = False
 
     def _get_db(self) -> lancedb.DBConnection:
         """Get or create the database connection."""
@@ -147,6 +165,59 @@ class HistoryDB:
 
         return self._table
 
+    def create_fts_index(self, replace: bool = False) -> bool:
+        """Create a full-text search index on the text column.
+
+        This is required for FTS and hybrid search modes.
+
+        Args:
+            replace: If True, replace existing FTS index
+
+        Returns:
+            True if index was created successfully, False otherwise
+        """
+        try:
+            db = self._get_db()
+            if self.table_name not in db.table_names():
+                return False
+
+            table = db.open_table(self.table_name)
+            table.create_fts_index("text", replace=replace)
+            self._fts_index_created = True
+            return True
+        except Exception as e:
+            # Index might already exist
+            if "already exists" in str(e).lower():
+                self._fts_index_created = True
+                return True
+            return False
+
+    def has_fts_index(self) -> bool:
+        """Check if the FTS index exists on the table.
+
+        Returns:
+            True if FTS index exists, False otherwise
+        """
+        if self._fts_index_created:
+            return True
+
+        try:
+            db = self._get_db()
+            if self.table_name not in db.table_names():
+                return False
+
+            table = db.open_table(self.table_name)
+            # Check if text_idx exists in the index list
+            indices = table.list_indices()
+            for idx in indices:
+                # LanceDB names FTS indices as "<column>_idx"
+                if idx.get("name") == "text_idx" or idx.get("index_type") == "FTS":
+                    self._fts_index_created = True
+                    return True
+            return False
+        except Exception:
+            return False
+
     def add_documents(self, documents: List[Document]) -> int:
         """Add documents to the database.
 
@@ -192,25 +263,44 @@ class HistoryDB:
 
     def search(
         self,
-        query_embedding: List[float],
+        query_embedding: Optional[List[float]] = None,
+        query_text: Optional[str] = None,
+        mode: SearchMode = SearchMode.VECTOR,
+        hybrid_weight: float = 0.7,
         limit: int = 10,
         session_filter: Optional[str] = None,
         project_filter: Optional[str] = None,
         chunk_type_filter: Optional[str] = None
     ) -> List[SearchResult]:
-        """Search for similar documents using vector similarity.
+        """Search for documents using vector, FTS, or hybrid search.
 
         Args:
-            query_embedding: The embedding vector for the search query
+            query_embedding: The embedding vector for vector/hybrid search
+            query_text: The text query for FTS/hybrid search
+            mode: Search mode - VECTOR, FTS, or HYBRID
+            hybrid_weight: Balance between vector (1.0) and FTS (0.0) for hybrid search.
+                          Default 0.7 means 70% vector, 30% FTS.
             limit: Maximum number of results to return
             session_filter: Optional session ID to filter by
             project_filter: Optional project path to filter by
             chunk_type_filter: Optional chunk type to filter by
 
         Returns:
-            List of SearchResult objects sorted by similarity (best first)
+            List of SearchResult objects sorted by relevance (best first)
+
+        Raises:
+            ValueError: If required parameters are missing for the search mode
         """
-        embedding_dim = len(query_embedding)
+        # Validate inputs based on mode
+        if mode == SearchMode.VECTOR and query_embedding is None:
+            raise ValueError("query_embedding is required for VECTOR search mode")
+        if mode == SearchMode.FTS and query_text is None:
+            raise ValueError("query_text is required for FTS search mode")
+        if mode == SearchMode.HYBRID and (query_embedding is None or query_text is None):
+            raise ValueError("Both query_embedding and query_text are required for HYBRID search mode")
+
+        # Get embedding dimension (use 384 as default for MiniLM)
+        embedding_dim = len(query_embedding) if query_embedding else 384
 
         try:
             table = self._get_or_create_table(embedding_dim)
@@ -218,10 +308,7 @@ class HistoryDB:
             # Table doesn't exist or is empty
             return []
 
-        # Build search query
-        search = table.search(query_embedding)
-
-        # Apply filters if specified
+        # Build where clause for filters
         where_clauses = []
         if session_filter:
             where_clauses.append(f"session_id = '{session_filter}'")
@@ -229,16 +316,141 @@ class HistoryDB:
             where_clauses.append(f"project_path = '{project_filter}'")
         if chunk_type_filter:
             where_clauses.append(f"chunk_type = '{chunk_type_filter}'")
+        where_clause = " AND ".join(where_clauses) if where_clauses else None
 
-        if where_clauses:
-            search = search.where(" AND ".join(where_clauses))
+        # Execute search based on mode
+        if mode == SearchMode.VECTOR:
+            results = self._vector_search(table, query_embedding, limit, where_clause)
+        elif mode == SearchMode.FTS:
+            results = self._fts_search(table, query_text, limit, where_clause)
+        elif mode == SearchMode.HYBRID:
+            results = self._hybrid_search(table, query_embedding, query_text, limit, where_clause, hybrid_weight)
+        else:
+            results = []
 
-        # Execute search
+        return results
+
+    def _vector_search(
+        self,
+        table: lancedb.table.Table,
+        query_embedding: List[float],
+        limit: int,
+        where_clause: Optional[str]
+    ) -> List[SearchResult]:
+        """Perform pure vector similarity search.
+
+        Args:
+            table: LanceDB table to search
+            query_embedding: Query vector
+            limit: Max results
+            where_clause: Optional SQL where clause
+
+        Returns:
+            List of SearchResult objects
+        """
+        search = table.search(query_embedding)
+
+        if where_clause:
+            search = search.where(where_clause)
+
         results = search.limit(limit).to_list()
+        return self._convert_results(results, score_field="_distance")
 
-        # Convert to SearchResult objects
+    def _fts_search(
+        self,
+        table: lancedb.table.Table,
+        query_text: str,
+        limit: int,
+        where_clause: Optional[str]
+    ) -> List[SearchResult]:
+        """Perform full-text search.
+
+        Args:
+            table: LanceDB table to search
+            query_text: Text query
+            limit: Max results
+            where_clause: Optional SQL where clause
+
+        Returns:
+            List of SearchResult objects
+        """
+        # FTS requires an index - check and create if needed
+        if not self.has_fts_index():
+            # Try to create the index automatically
+            if not self.create_fts_index():
+                return []
+
+        search = table.search(query_text, query_type="fts")
+
+        if where_clause:
+            search = search.where(where_clause)
+
+        results = search.limit(limit).to_list()
+        return self._convert_results(results, score_field="_score")
+
+    def _hybrid_search(
+        self,
+        table: lancedb.table.Table,
+        query_embedding: List[float],
+        query_text: str,
+        limit: int,
+        where_clause: Optional[str],
+        weight: float = 0.7
+    ) -> List[SearchResult]:
+        """Perform hybrid search combining vector and FTS with weighted reranking.
+
+        Args:
+            table: LanceDB table to search
+            query_embedding: Query vector
+            query_text: Text query
+            limit: Max results
+            where_clause: Optional SQL where clause
+            weight: Balance between vector (1.0) and FTS (0.0). Default 0.7.
+
+        Returns:
+            List of SearchResult objects
+        """
+        # FTS requires an index - check and create if needed
+        if not self.has_fts_index():
+            # Try to create the index automatically
+            if not self.create_fts_index():
+                # Fall back to vector search if FTS index creation fails
+                return self._vector_search(table, query_embedding, limit, where_clause)
+
+        # Use LinearCombinationReranker with configurable weight
+        # weight=1.0 means 100% vector, weight=0.0 means 100% FTS
+        reranker = LinearCombinationReranker(weight=weight)
+
+        # Build hybrid search with explicit vector and text queries
+        search = (
+            table.search(query_type="hybrid")
+            .vector(query_embedding)
+            .text(query_text)
+            .rerank(reranker=reranker)
+        )
+
+        if where_clause:
+            search = search.where(where_clause)
+
+        results = search.limit(limit).to_list()
+        return self._convert_results(results, score_field="_relevance_score")
+
+    def _convert_results(
+        self,
+        rows: List[Dict[str, Any]],
+        score_field: str = "_distance"
+    ) -> List[SearchResult]:
+        """Convert raw LanceDB results to SearchResult objects.
+
+        Args:
+            rows: Raw results from LanceDB
+            score_field: Name of the score field (_distance, _score, or _relevance_score)
+
+        Returns:
+            List of SearchResult objects
+        """
         search_results = []
-        for row in results:
+        for row in rows:
             metadata = {}
             if row.get("metadata"):
                 try:
@@ -252,7 +464,7 @@ class HistoryDB:
                 project_path=row["project_path"],
                 chunk_type=row["chunk_type"],
                 text=row["text"],
-                score=row.get("_distance", 0.0),
+                score=row.get(score_field, 0.0),
                 metadata=metadata,
             ))
 
@@ -309,7 +521,7 @@ class HistoryDB:
         """Get database statistics.
 
         Returns:
-            Dict with stats like total documents, sessions, etc.
+            Dict with stats like total documents, sessions, FTS index status, etc.
         """
         try:
             db = self._get_db()
@@ -319,6 +531,7 @@ class HistoryDB:
                     "total_sessions": 0,
                     "db_path": str(self.db_path),
                     "exists": False,
+                    "has_fts_index": False,
                 }
 
             table = db.open_table(self.table_name)
@@ -330,6 +543,7 @@ class HistoryDB:
                 "chunk_types": df["chunk_type"].value_counts().to_dict() if "chunk_type" in df.columns else {},
                 "db_path": str(self.db_path),
                 "exists": True,
+                "has_fts_index": self.has_fts_index(),
             }
         except Exception as e:
             return {
@@ -337,6 +551,7 @@ class HistoryDB:
                 "total_sessions": 0,
                 "db_path": str(self.db_path),
                 "exists": False,
+                "has_fts_index": False,
                 "error": str(e),
             }
 
@@ -351,6 +566,7 @@ class HistoryDB:
             if self.table_name in db.table_names():
                 db.drop_table(self.table_name)
             self._table = None
+            self._fts_index_created = False
             return True
         except Exception:
             return False

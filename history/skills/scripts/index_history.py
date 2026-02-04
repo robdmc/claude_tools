@@ -19,6 +19,12 @@ Usage:
 
     # Clear and rebuild the index
     python index_history.py --rebuild
+
+    # Create FTS index for full-text and hybrid search
+    python index_history.py --create-fts-index
+
+    # Rebuild FTS index (replace existing)
+    python index_history.py --create-fts-index --rebuild-fts
 """
 
 import argparse
@@ -230,6 +236,55 @@ def index_all_sessions(
     return stats
 
 
+def create_fts_index(db: HistoryDB, replace: bool = False, verbose: bool = False) -> dict:
+    """Create the full-text search index on the database.
+
+    Args:
+        db: HistoryDB instance
+        replace: If True, replace existing FTS index
+        verbose: Print progress information
+
+    Returns:
+        Dict with status information
+    """
+    result = {
+        "success": False,
+        "action": "none",
+        "message": "",
+    }
+
+    # Check if database has any data
+    stats = db.get_stats()
+    if not stats.get("exists") or stats.get("total_documents", 0) == 0:
+        result["message"] = "No indexed data found. Run indexing first before creating FTS index."
+        return result
+
+    # Check if FTS index already exists
+    has_fts = db.has_fts_index()
+
+    if has_fts and not replace:
+        result["success"] = True
+        result["action"] = "existing"
+        result["message"] = "FTS index already exists. Use --rebuild-fts to replace it."
+        return result
+
+    if verbose:
+        action = "Replacing" if has_fts else "Creating"
+        print(f"{action} FTS index on {stats.get('total_documents', 0)} documents...")
+
+    # Create the FTS index
+    success = db.create_fts_index(replace=replace)
+
+    if success:
+        result["success"] = True
+        result["action"] = "replaced" if has_fts else "created"
+        result["message"] = f"FTS index {'replaced' if has_fts else 'created'} successfully."
+    else:
+        result["message"] = "Failed to create FTS index."
+
+    return result
+
+
 def show_stats(db: HistoryDB, json_output: bool = False) -> None:
     """Show indexing statistics.
 
@@ -269,6 +324,14 @@ def show_stats(db: HistoryDB, json_output: bool = False) -> None:
         if combined["coverage"].get("percentage"):
             print(f"  Coverage: {combined['coverage']['percentage']}%")
         print()
+        print("Search Capabilities:")
+        has_fts = db_stats.get("has_fts_index", False)
+        print(f"  Vector search: {'enabled' if db_stats.get('exists', False) else 'disabled'}")
+        print(f"  Full-text search (FTS): {'enabled' if has_fts else 'disabled'}")
+        print(f"  Hybrid search: {'enabled' if has_fts else 'disabled (requires FTS index)'}")
+        if not has_fts and db_stats.get("exists", False):
+            print("  (Run with --create-fts-index to enable FTS and hybrid search)")
+        print()
         if db_stats.get("chunk_types"):
             print("Document types:")
             for chunk_type, count in db_stats["chunk_types"].items():
@@ -300,6 +363,16 @@ def main():
         "--stats",
         action="store_true",
         help="Show indexing statistics",
+    )
+    parser.add_argument(
+        "--create-fts-index",
+        action="store_true",
+        help="Create full-text search index for FTS and hybrid search modes",
+    )
+    parser.add_argument(
+        "--rebuild-fts",
+        action="store_true",
+        help="Replace existing FTS index (use with --create-fts-index)",
     )
     parser.add_argument(
         "--min-length",
@@ -339,6 +412,15 @@ def main():
     # Handle --stats
     if args.stats:
         show_stats(db, json_output=args.json)
+        return
+
+    # Handle --create-fts-index
+    if args.create_fts_index:
+        result = create_fts_index(db, replace=args.rebuild_fts, verbose=args.verbose)
+        if args.json:
+            print(json.dumps(result, indent=2))
+        else:
+            print(result["message"])
         return
 
     # Handle --rebuild
@@ -391,6 +473,11 @@ def main():
             print(f"  Errors: {len(stats['errors'])}")
             for err in stats["errors"][:3]:
                 print(f"    - {err['session_id'][:8]}: {err['error']}")
+
+        # Check if FTS index exists and provide guidance
+        if not db.has_fts_index():
+            print()
+            print("Tip: Run with --create-fts-index to enable full-text and hybrid search modes.")
 
 
 if __name__ == "__main__":
