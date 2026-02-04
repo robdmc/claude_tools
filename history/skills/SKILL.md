@@ -6,7 +6,7 @@ allowed-tools: Bash(python {SKILL_DIR}/scripts/list_sessions.py *), Bash(python 
 
 # Conversation History Skill
 
-Search and explore Claude Code conversation history across all projects with progressive, token-conscious disclosure. Supports both keyword search (fast) and semantic search (LanceDB-powered, understands meaning).
+Search and explore Claude Code conversation history across all projects with progressive, token-conscious disclosure. Supports hybrid search (default, combines semantic + keyword), pure semantic search (LanceDB-powered, understands meaning), and pure keyword search (full-text, exact terms).
 
 ## Usage
 
@@ -31,14 +31,23 @@ When user asks `/history help`, display:
 | Command | Description |
 |---------|-------------|
 | `list` | Show recent sessions |
-| `search <query>` | Semantic search (requires index) |
+| `search <query>` | Hybrid search (semantic + keyword, default) |
+| `search <query> --mode semantic` | Pure semantic search (finds similar meaning) |
+| `search <query> --mode keyword` | Pure keyword search (exact terms) |
+| `search <query> --weight 0.9` | Adjust hybrid balance (0=keyword, 1=semantic) |
 | `explore <id>` | Explore a session (summary, files, grep) |
 | `export <id>` | Export session to Markdown/JSON |
 | `import <id>` | Import session for /resume |
 | `index` / `sync` | Build/update search index (incremental) |
 | `index rebuild` | Clear and rebuild entire index from scratch |
+| `index --create-fts-index` | Create FTS index (enables hybrid/keyword search) |
 | `summarize <id>` | Get detailed narrative summary of a session |
 | `help` | Show this help |
+
+**Search Modes:**
+- `hybrid` (default): Combines semantic + keyword. Use `--weight` to adjust (0.7 = 70% semantic)
+- `semantic`: Finds similar meaning even without exact keywords
+- `keyword`: Full-text search for exact terms (error codes, filenames, etc.)
 
 ## Progressive Disclosure Flow
 
@@ -174,18 +183,26 @@ uv run --directory {SKILL_DIR}/scripts index_history.py --session abc123
 # Index only sessions for a specific project
 uv run --directory {SKILL_DIR}/scripts index_history.py --project /Users/rob/myproject
 
-# Show indexing stats
+# Show indexing stats (includes search capabilities)
 uv run --directory {SKILL_DIR}/scripts index_history.py --stats
 
 # Clear and rebuild entire index
 uv run --directory {SKILL_DIR}/scripts index_history.py --rebuild
+
+# Create FTS index (required for keyword and hybrid search)
+uv run --directory {SKILL_DIR}/scripts index_history.py --create-fts-index
+
+# Rebuild FTS index (replace existing)
+uv run --directory {SKILL_DIR}/scripts index_history.py --create-fts-index --rebuild-fts
 ```
 
 Arguments:
 - `--session`, `-s`: Index a specific session ID (prefix match supported)
 - `--project`, `-p`: Filter to sessions from a specific project (substring match)
 - `--rebuild`: Clear database and rebuild from scratch
-- `--stats`: Show indexing statistics (documents, sessions, coverage)
+- `--create-fts-index`: Create full-text search index (enables keyword/hybrid modes)
+- `--rebuild-fts`: Replace existing FTS index (use with --create-fts-index)
+- `--stats`: Show indexing statistics (documents, sessions, search capabilities)
 - `--min-length`: Minimum content length to index (default: 20)
 - `--batch-size`: Batch size for embedding generation (default: 32)
 - `--db-path`: Custom database path (default: ~/.claude/history_search.lance)
@@ -194,11 +211,22 @@ Arguments:
 
 ### search_history.py
 
-Semantic search using LanceDB (finds similar meaning, not just keywords):
+Search using hybrid (default), semantic, or keyword modes. Default output is a table showing session ID, timestamp, and summary (most recent first):
 
 ```bash
-# Basic semantic search
+# Hybrid search (default: 70% semantic, 30% keyword)
+# Output: table with ID, timestamp, summary
 uv run --directory {SKILL_DIR}/scripts search_history.py "how to set up authentication"
+
+# Adjust hybrid balance (0=keyword only, 1=semantic only)
+uv run --directory {SKILL_DIR}/scripts search_history.py "database connection" --weight 0.9
+uv run --directory {SKILL_DIR}/scripts search_history.py "TypeError" --weight 0.3
+
+# Pure semantic search (finds similar meaning)
+uv run --directory {SKILL_DIR}/scripts search_history.py "how to authenticate" --mode semantic
+
+# Pure keyword search (exact terms like error codes, filenames)
+uv run --directory {SKILL_DIR}/scripts search_history.py "PGURL" --mode keyword
 
 # Search with filters
 uv run --directory {SKILL_DIR}/scripts search_history.py "database migrations" --project myproject --limit 5
@@ -206,29 +234,32 @@ uv run --directory {SKILL_DIR}/scripts search_history.py "database migrations" -
 # Filter by content type
 uv run --directory {SKILL_DIR}/scripts search_history.py "error handling" --type user_prompt
 
-# Show full text content (not truncated)
-uv run --directory {SKILL_DIR}/scripts search_history.py "testing patterns" --full
+# Output formats
+uv run --directory {SKILL_DIR}/scripts search_history.py "query"            # Default: table view
+uv run --directory {SKILL_DIR}/scripts search_history.py "query" --detailed # Show matching snippets
+uv run --directory {SKILL_DIR}/scripts search_history.py "query" --raw      # Individual matches
+uv run --directory {SKILL_DIR}/scripts search_history.py "query" --json     # JSON output
 
-# Group results by session with summaries
-uv run --directory {SKILL_DIR}/scripts search_history.py "authentication" --group
-
-# Show database statistics
+# Show database statistics (includes FTS index status)
 uv run --directory {SKILL_DIR}/scripts search_history.py --stats
 ```
 
 Arguments:
-- `query` (positional or `--query`, `-q`): Search query (semantic similarity)
+- `query` (positional or `--query`, `-q`): Search query
+- `--mode`, `-m`: Search mode: `hybrid` (default), `semantic`, or `keyword`
+- `--weight`, `-w`: Hybrid balance: 0.0=keyword only, 1.0=semantic only (default: 0.7)
 - `--limit`, `-l`: Maximum results to return (default: 10)
 - `--project`, `-p`: Filter by project path (exact match)
 - `--session`, `-s`: Filter by session ID
 - `--type`, `-t`: Filter by content type: `user_prompt`, `assistant_text`, `tool_use`, `tool_result`
-- `--full`, `-f`: Show full text content (not truncated)
-- `--group`, `-g`: Group results by session and show session summaries
+- `--detailed`, `-d`: Show detailed view with matching content snippets
+- `--raw`, `-r`: Show raw results per match (not grouped by session)
+- `--full`, `-f`: Show full text content (not truncated, for --detailed/--raw)
 - `--stats`: Show database statistics
 - `--json`, `-j`: Output JSON format
 - `--db-path`: Custom database path
 
-**Note:** Requires indexed data. Run `index_history.py` first.
+**Note:** Requires indexed data. Run `index_history.py` first. For keyword/hybrid modes, also run `index_history.py --create-fts-index`.
 
 **Search results include timestamps.** Each result has metadata with the original message timestamp. When the user asks about dates/timing (e.g., "when did I...", "what date...", "how old is..."), the timestamp is already in the search output - no need for additional lookups.
 
@@ -278,21 +309,31 @@ When the user asks naturally, interpret and run the appropriate script:
 | "search for pattern in that session" | explore_session.py Z --grep "pattern" |
 | "what did I ask?" / "show my prompts" | explore_session.py Z --user-prompts |
 
-### Semantic Search (LanceDB)
+### Search (Hybrid by Default)
 | User Query | Action |
 |------------|--------|
-| "search for X" / "semantic search X" | search_history.py "X" |
-| "find conversations similar to X" | search_history.py "X" |
-| "what conversations relate to X" | search_history.py "X" |
+| "search for X" / "find X" | search_history.py "X" (hybrid mode) |
+| "search X semantically" / "meaning search" | search_history.py "X" --mode semantic |
+| "keyword search X" / "exact match X" | search_history.py "X" --mode keyword |
+| "search X more semantic" / "lean semantic" | search_history.py "X" --weight 0.9 |
+| "search X more keyword" / "lean keyword" | search_history.py "X" --weight 0.3 |
+| "find conversations similar to X" | search_history.py "X" --mode semantic |
+| "find exact term X" / "search for error code X" | search_history.py "X" --mode keyword |
 | "search my prompts about X" | search_history.py "X" --type user_prompt |
 | "search assistant responses about X" | search_history.py "X" --type assistant_text |
 | "when did I talk about X" / "what date" | search_history.py "X" (timestamps are in output) |
 | "summarize sessions about X" | search_history.py "X" --group |
 | "which sessions mention X" | search_history.py "X" --group |
+
+### Indexing
+| User Query | Action |
+|------------|--------|
 | "index my history" / "build index" | index_history.py |
 | "sync" / "sync history" | index_history.py |
 | "reindex everything" / "rebuild index" | index_history.py --rebuild |
 | "index stats" / "how much is indexed" | index_history.py --stats |
+| "enable keyword search" / "enable hybrid" | index_history.py --create-fts-index |
+| "rebuild fts index" | index_history.py --create-fts-index --rebuild-fts |
 
 ### Export
 | User Query | Action |
@@ -358,13 +399,13 @@ Claude: [runs import_session.py abc123]
         Imported to current project. Use /resume to continue that conversation.
 ```
 
-### Semantic Search (Finds Similar Meaning)
+### Hybrid Search (Default)
 
 ```
-User: /history search how to set up user authentication
+User: /history search user authentication
 
-Claude: [runs search_history.py "how to set up user authentication"]
-        Found 10 results. Top matches:
+Claude: [runs search_history.py "user authentication"]
+        Found 10 results (mode: hybrid). Top matches:
 
         1. Session: 8f3a2c1e... | Project: web-app | Date: 2026-01-15
            Type: user_prompt | Score: 0.8734
@@ -374,16 +415,34 @@ Claude: [runs search_history.py "how to set up user authentication"]
            Type: assistant_text | Score: 0.8521
            Content: Here's how to add authentication middleware using Passport.js...
 
+User: search that more semantically
+
+Claude: [runs search_history.py "user authentication" --weight 0.9]
+        (adjusts to 90% semantic, 10% keyword)
+
 User: explore the first one
 
 Claude: [runs explore_session.py 8f3a2c1e --summary]
         You asked me to implement JWT authentication. I created auth middleware,
         login/logout routes, and integrated with your PostgreSQL user table...
+```
 
-User: export that session
+### Keyword Search (Exact Terms)
 
-Claude: [runs export_session.py 8f3a2c1e --output auth-session.md]
-        Exported session 8f3a2c1e... to auth-session.md
+```
+User: /history search PGURL --mode keyword
+
+Claude: [runs search_history.py "PGURL" --mode keyword]
+        Found 3 results (mode: keyword). Top matches:
+
+        1. Session: 2a4f1c9e... | Project: api-server | Date: 2026-01-20
+           Type: user_prompt | Score: 12.34
+           Content: How do I set the PGURL environment variable?
+
+User: /history search TypeError: Cannot read property --mode keyword
+
+Claude: [runs search_history.py "TypeError: Cannot read property" --mode keyword]
+        Found exact matches for that error message...
 ```
 
 ### Indexing Workflow
@@ -401,6 +460,14 @@ Claude: [runs index_history.py --verbose]
           Sessions skipped: 0
           Documents indexed: 1,847
 
+        Tip: Run with --create-fts-index to enable full-text and hybrid search modes.
+
+User: /history index --create-fts-index
+
+Claude: [runs index_history.py --create-fts-index]
+        Creating FTS index on 1,847 documents...
+        FTS index created successfully.
+
 User: /history index stats
 
 Claude: [runs index_history.py --stats]
@@ -414,6 +481,11 @@ Claude: [runs index_history.py --stats]
           Indexed sessions: 42
           Total sessions available: 42
           Coverage: 100.0%
+
+        Search Capabilities:
+          Vector search: enabled
+          Full-text search (FTS): enabled
+          Hybrid search: enabled
 
         Document types:
           user_prompt: 523

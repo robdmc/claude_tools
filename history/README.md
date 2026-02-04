@@ -4,7 +4,9 @@ Search and explore Claude Code conversation history across all projects. Find pa
 
 ## Features
 
+- **Hybrid Search**: Combines semantic (vector) and keyword (full-text) search with configurable balance
 - **Semantic Search**: Find sessions by meaning using LanceDB vector search
+- **Keyword Search**: Full-text search for exact terms like error codes or filenames
 - **List**: Show recent sessions with summaries
 - **Explore**: Query within a session (files created, message flow, grep)
 - **Export**: Save sessions as Markdown or JSON transcripts
@@ -105,17 +107,37 @@ uv run index_history.py                    # Index new sessions
 uv run index_history.py --rebuild          # Rebuild entire index
 uv run index_history.py --stats            # Show index statistics
 uv run index_history.py --session abc123   # Index specific session
+uv run index_history.py --create-fts-index # Create FTS index for hybrid search
+uv run index_history.py --create-fts-index --rebuild-fts  # Rebuild FTS index
 ```
 
 ### search_history.py
 
-Semantic search using vector similarity:
+Search using hybrid (default), semantic, or keyword modes:
 
 ```bash
-uv run search_history.py "authentication setup"     # Basic search
-uv run search_history.py "errors" --type user_prompt  # Filter by type
-uv run search_history.py "testing" --project myapp  # Filter by project
-uv run search_history.py "query" --full --json      # Full output as JSON
+# Hybrid search (default: 70% semantic, 30% keyword)
+uv run search_history.py "authentication setup"
+
+# Adjust hybrid balance (0=keyword, 1=semantic)
+uv run search_history.py "database connection" --weight 0.9   # More semantic
+uv run search_history.py "TypeError" --weight 0.3             # More keyword
+
+# Pure semantic (vector similarity)
+uv run search_history.py "how to authenticate" --mode semantic
+
+# Pure keyword (full-text search, good for exact terms)
+uv run search_history.py "PGURL" --mode keyword
+
+# Filters
+uv run search_history.py "errors" --type user_prompt   # Filter by type
+uv run search_history.py "testing" --project myapp     # Filter by project
+
+# Output formats
+uv run search_history.py "query"               # Default: table view (ID, timestamp, summary)
+uv run search_history.py "query" --detailed    # Show matching content snippets
+uv run search_history.py "query" --raw         # Show individual matches (not grouped)
+uv run search_history.py "query" --json        # JSON output
 ```
 
 ### export_session.py
