@@ -107,6 +107,29 @@ Scripts in `{SKILL_DIR}/scripts/`. Run with: `uv run --project {SKILL_DIR}/scrip
 | `assets.py get <asset> --dest <dir>` | Restore a file |
 | `validate.py` | Check for errors |
 
+## Entry Structure
+
+Daily logs (`.scribe/YYYY-MM-DD.md`) contain entries:
+
+```markdown
+---
+id: 2026-01-23-14-35
+timestamp: "14:35"
+title: Entry title here
+git: abc1234
+---
+## 14:35 — Entry title here
+
+Narrative...
+
+**Files touched:**
+- `file.py` — Description
+
+---
+```
+
+Searchable fields: `id:`, `title:`, `git:`, `mode: git-entry`, `**Related:**`, `**Archived:**`
+
 ## Querying
 
 - **Time-based:** Read `.scribe/YYYY-MM-DD.md` directly
