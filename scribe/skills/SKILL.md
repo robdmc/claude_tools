@@ -24,6 +24,26 @@ The scribe maintains a narrative log of your exploratory work, can archive impor
 
 **Important:** Git entries ONLY happen when user explicitly says "git". Never auto-promote.
 
+## CRITICAL: Always Propose Before Finalizing
+
+**NEVER** run `entry.py prepare` or `entry.py finalize` without first:
+1. Showing the user the proposed entry text (title + body) in a markdown block
+2. Getting explicit user approval ("ok", "yes", "looks good", etc.)
+
+This applies to ALL entry types (log, git-entry, archive).
+
+### Example Propose Step
+
+> Here's the entry I'll create:
+>
+> **Title:** Migrate signup forecast to Parquet format
+>
+> **Body:** Removed all DuckDB dependencies, switching to a simpler Parquet-based workflow. The notebook now loads from `subscriptions.parquet` and saves to `signup_forecast.parquet`...
+>
+> **Files touched:** `compute_signup_forecast.nb.py`
+>
+> Does this look good?
+
 ## Directory Structure
 
 ```
@@ -36,8 +56,8 @@ The scribe maintains a narrative log of your exploratory work, can archive impor
 ## Entry Flow
 
 1. **Assess** — Check context, recent logs, `git status`
-2. **Propose** — Draft entry for user approval, offer archives
-3. **Confirm** — Wait for user OK
+2. **Propose** — Draft the full entry text (title and body) and show it to the user in a markdown block. Ask "Does this look good?" or "Should I proceed?"
+3. **Confirm** — STOP and WAIT for explicit user approval ("ok", "yes", "looks good", etc.). Do NOT proceed until user confirms.
 4. **Prepare** — `entry.py prepare [options]` → outputs staging file path
 5. **Edit title** — Replace `__TITLE__` in staging file
 6. **Edit body** — Replace `__BODY__` in staging file
