@@ -526,7 +526,7 @@ def inject_savefig(script: str, png_path: str, viz_id: str | None = None, waterm
     if modified == script:
         # Check if matplotlib is imported
         if 'matplotlib' in script or 'plt' in script:
-            modified = script.rstrip() + f"\n\n# Auto-injected by viz_runner\n{savefig_line}\n"
+            modified = script.rstrip() + f"\n\n# Auto-injected by viz_runner\n{savefig_line}\nplt.show()\n"
 
     return modified
 
