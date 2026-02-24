@@ -1,260 +1,113 @@
 ---
 name: viz
-description: Data visualization and inspection skill. Use when user asks to plot, chart, graph, or visualize data from files or marimo notebooks. Also use for DataFrame inspection when user wants to "show", "display", or "see" data structure (columns, dtypes, first N rows). Supports matplotlib/seaborn for plots, marimo notebook extraction, and artifact management in .viz/.
-allowed-tools: Read, Write(.viz/_draft.py), Glob(.viz/*), Grep(.viz/*), Bash(rm -f .viz/_draft.py), Bash(python {SKILL_DIR}/scripts/viz_runner.py:*), Bash(uv run --directory {SKILL_DIR}/scripts python *), Bash(open *)
+description: >
+  Create publication-quality interactive visualizations from data files.
+  Use when user asks to plot, chart, graph, or visualize data.
+  Supports matplotlib/seaborn with interactive display and PNG output.
+allowed-tools: >
+  Read, Write(.viz/*), Glob(.viz/*),
+  Bash(uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py *),
+  Bash
 ---
 
-# Viz Skill: Data Visualization and Inspection
+# Viz Skill
 
-> **CRITICAL: Never use heredocs (`<< 'EOF'`) to pass scripts to viz_runner.py.**
-> Always use the Write tool to create `.viz/_draft.py`, then pass `--file .viz/_draft.py` to the runner.
+## Data Requirement
 
-> **CRITICAL: Always run viz in a subagent.** Use the Task tool to spawn a subagent for visualization work. This prevents blocking the main conversation thread while plots generate.
->
-> ```
-> Task tool:
->   subagent_type: general-purpose
->   prompt: "Use the viz skill to [create/regenerate] a plot of X. Data is at /path/to/data.parquet..."
-> ```
->
-> Do NOT run viz_runner.py directly from the main thread.
+All data must live in `.viz/`. Before plotting, always copy or generate the source data into `.viz/<name>.parquet` (or `.csv`), even if the original is a local file. This makes every visualization fully self-contained and reproducible.
 
-## Contents
+## Workflow
 
-- [Purpose](#purpose)
-- [Input Specification](#input-specification)
-- [Intent Detection](#intent-detection)
-- [Artifact Management](#artifact-management)
-- [Skill Workflow](#skill-workflow)
-- [Refinement and Regeneration](#refinement-and-regeneration)
-- [Marimo Notebook Support](#marimo-notebook-support) (see references/marimo.md)
-- [Library Selection and Styling](#library-selection-and-styling) (see references/styling.md)
+1. **Materialize data** — Copy or generate data into `.viz/<name>.parquet` (or `.csv`)
+2. **Check for collisions** — Verify no existing `.viz/<name>.py` conflicts with your chosen name
+3. **Write script** — Use the Write tool to create `.viz/<name>.py`
+4. **Execute** — Run via the viz runner
+5. **Report** — Confirm the output path `.viz/<name>.png` to the user
 
-## Purpose
+## File Convention
 
-This skill **directly executes** visualizations. The calling agent provides a visualization spec along with data context, and the skill:
-1. Infers the data loading code from the provided context
-2. Generates the complete plotting script
-3. Executes it via the `viz_runner.py` helper
-4. Returns artifact paths for the caller to reference
+Every visualization is a name-prefix triplet inside `.viz/`:
 
-**Key pattern:**
+| File | Purpose |
+|------|---------|
+| `<name>.parquet` | Data (or `.csv`) |
+| `<name>.py` | Plotting script |
+| `<name>.png` | Output image |
+
+Names must be `lowercase_snake_case`. All paths inside scripts are **relative** — the runner `cd`s into `.viz/` before execution.
+
+## Script Generation
+
+Every generated script must include these sections in order:
+
+1. **Imports** — All imports inside the script (self-contained execution)
+2. **Data loading** — Hardcoded: `pd.read_parquet('<name>.parquet')` or `pd.read_csv('<name>.csv')`
+3. **Plot creation** — matplotlib/seaborn, publication quality
+4. **Watermark** — Small semi-transparent name label at bottom-right
+5. **Save** — `plt.savefig('<name>.png', dpi=150, bbox_inches='tight')`
+6. **Show** — `plt.show()` as the last line
+
+### Example Script
+
+```python
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+df = pd.read_parquet('monthly_sales.parquet')
+
+fig, ax = plt.subplots(figsize=(10, 6))
+sns.barplot(data=df, x='month', y='revenue', ax=ax)
+ax.set_title('Monthly Revenue', fontsize=14)
+ax.set_xlabel('Month', fontsize=12)
+ax.set_ylabel('Revenue ($)', fontsize=12)
+ax.grid(axis='y', alpha=0.3)
+fig.tight_layout()
+
+fig.text(0.99, 0.01, 'monthly_sales', transform=fig.transFigure,
+         fontsize=7, color='gray', alpha=0.3, ha='right', va='bottom')
+
+plt.savefig('monthly_sales.png', dpi=150, bbox_inches='tight')
+plt.show()
 ```
-Caller (with data context) → Skill (infers data loading, generates script, executes) → Plot appears
-```
 
-## Input Specification
+## Runner Usage
 
-### Required
-- **Visualization spec**: What to plot (chart type, axes, title, special features)
-
-### Data Context (one of these forms)
-- **Database + query**: "Data from `/full/path/to/data.ddb`, table `forecast`, columns month, members"
-- **SQL query**: "Run this SQL: `SELECT * FROM forecast WHERE year >= 2024`"
-- **Code snippet**: "Load data like this: `df = pd.read_parquet('/full/path/to/data.parquet')`"
-- **File path**: "CSV at `/tmp/data.csv` with columns X, Y, Z"
-
-**CRITICAL: Absolute Paths Required** — Scripts execute from `.viz/`, not the caller's directory. All file paths must be absolute.
-
-### Optional
-- **Suggested ID**: A name hint (e.g., `pop_bar`, `churn_trend`). The runner ensures uniqueness.
-
-## Intent Detection
-
-**Before generating any code, analyze the user's request to determine the appropriate mode.**
-
-### Inspection Mode (use `--show`)
-Use when the user wants to **see the data itself**, not a visualization:
-- "Show me the dataframe"
-- "Display the first N rows"
-- "What does the data look like?"
-- "What columns are in X?"
-
-**Action:** Use `--show` flag. Do NOT generate plot code.
-
-### Visualization Mode (generate plot)
-Use when the user wants a **chart, graph, or visual representation**:
-- "Plot the data"
-- "Create a chart of..."
-- "Visualize the trend"
-- "Bar chart showing..."
-
-**Action:** Generate matplotlib/seaborn code, write to temp file, execute via runner.
-
-### Ambiguous Requests
-If unclear (e.g., "show me X over time"):
-- If the request mentions chart types (bar, line, scatter) → visualization
-- If the request is about structure/columns/rows → inspection
-- When in doubt, use `--show` first (it's cheaper), then offer to plot
-
-### Existing Plot References
-If user references a plot by ID (e.g., "regenerate pop_bar", "modify the cosine_wave plot"):
-1. Check if `.viz/<id>.py` exists
-2. If yes, read the script and follow the [Refinement and Regeneration](#refinement-and-regeneration) workflow
-3. If no, inform user the plot wasn't found and offer to list available plots with `--list`
-
-**Action:** `python {SKILL_DIR}/scripts/viz_runner.py --list` shows all available plots.
-
-### View Mode (open images)
-Use when the user wants to **see existing plot images**:
-- "Show me all my plots"
-- "Open the images" / "View what I've created"
-- "Let me see the sine_wave plot"
-- "Compare plot1 and plot2"
-- "Show me the recent plots"
-
-**Selecting which images to open:**
-
-1. **Explicit ID reference**: User names a plot → open that specific PNG
-   - "open the sine_wave" → `open -a Preview .viz/sine_wave.png`
-
-2. **Recent context**: User just created a plot or discussed one → open that one
-   - After generating `forecast_chart`: "let me see it" → `open -a Preview .viz/forecast_chart.png`
-
-3. **All plots**: User asks for everything or uses plural without specifics
-   - "show me my plots" / "open all images" → `open -a Preview .viz/*.png`
-
-4. **Subset by pattern**: User describes a category or pattern
-   - "show me the forecast plots" → use `--list` to find matching IDs, then open those
-
-5. **Comparison**: User wants to compare specific plots
-   - "compare X and Y" → `open -a Preview .viz/X.png .viz/Y.png`
-
-6. **Ambiguous**: When unclear which plot(s) the user means
-   - Run `--list` first, then ask or infer from context
-
-**Action:** Use `open -a Preview` to open PNG files. Use `--list` first if needed to identify which plots exist.
-
-## Artifact Management
-
-All artifacts are managed in `.viz/` via the helper script.
-
-### Helper: `viz_runner.py`
-
+Create a visualization:
 ```bash
-python {SKILL_DIR}/scripts/viz_runner.py --file .viz/_draft.py --id NAME --desc "Description"
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py <name>
 ```
 
-The runner:
-1. Creates `.viz/` if needed and adds it to `.gitignore`
-2. Ensures ID uniqueness (appends `_2`, `_3`, etc. if collision)
-3. Injects `plt.savefig('.viz/<id>.png', dpi=150, bbox_inches='tight')` before `plt.show()`
-4. Writes the script to `.viz/<id>.py`
-5. Executes the script
-6. Writes metadata to `.viz/<id>.json`
-
-### Output Format
-
-Terminal output:
-```
-Plot: pop_bar
-  "Bar chart of members by month"
-  png: .viz/pop_bar.png
-```
-
-### List and Cleanup
-
+Update an existing visualization (overwrites the PNG):
 ```bash
-python {SKILL_DIR}/scripts/viz_runner.py --list   # Show all visualizations
-python {SKILL_DIR}/scripts/viz_runner.py --clean  # Remove all files
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py <name> --overwrite
 ```
 
-### Viewing Plots
-
-Open plots in Preview (macOS):
+List all existing visualizations:
 ```bash
-open -a Preview .viz/*.png           # All plots
-open -a Preview .viz/my_plot.png     # Single plot
-open -a Preview .viz/plot1.png .viz/plot2.png  # Multiple specific plots
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py --list
 ```
 
-## Skill Workflow
+## Efficiency Tips
 
-**CRITICAL: Do NOT use heredocs (`<< 'EOF'`).** Use the temp file pattern:
+- **Parallelize** independent Write calls (e.g., writing the data-generation script and the plot script at the same time when they are independent).
+- **Chain** data generation with the runner in a single Bash call where possible:
+  ```bash
+  python -c "import shutil; shutil.copy('/path/to/source.parquet', '.viz/sales.parquet')" && uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py sales
+  ```
+- For simple data copies, combine into one Bash invocation. Write both scripts in parallel, then chain execution sequentially.
 
-1. **Infer data loading**: Generate Python code to load/create the DataFrame using absolute paths
-2. **Generate visualization**: Add matplotlib/seaborn code for the requested plot
-3. **Write to temp file**: Run `rm -f .viz/_draft.py` first, then use the Write tool to create `.viz/_draft.py` with the complete script
-4. **Execute via runner**:
-   ```bash
-   python {SKILL_DIR}/scripts/viz_runner.py --file .viz/_draft.py --id suggested_name --desc "Short description"
-   ```
-   The runner reads the temp file, deletes it, then writes the final script to `.viz/<id>.py`.
-5. **Return to caller**: Report final ID and paths
+## Styling
 
-### Example Tool Sequence
+For publication-quality guidance — font sizes, figure sizes, colorblind-friendly palettes, and when to choose seaborn vs matplotlib — see **{SKILL_DIR}/references/styling.md**.
 
-```
-1. Bash tool  → rm -f .viz/_draft.py (delete stale draft if present)
-2. Write tool → .viz/_draft.py (complete Python script)
-3. Bash tool  → python viz_runner.py --file .viz/_draft.py --id my_plot --desc "..."
-```
+## Refinement
 
-**Why no heredocs?** Heredocs clutter the console output and require extra permissions. The temp file pattern is cleaner.
+To modify an existing plot, use the read-modify-overwrite pattern:
 
-### Important: Do NOT Auto-Read PNGs
+1. Read `.viz/<name>.py`
+2. Modify the script
+3. Overwrite `.viz/<name>.py` (using the Write tool)
+4. Run: `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py <name> --overwrite`
 
-Do NOT automatically read the PNG into context after generating a plot. The plot window opens via `plt.show()`, so the user can already see it.
-
-**Only read the PNG when:**
-- The user explicitly asks you to analyze the graph
-- You need to learn something from the visual output
-
-**Instead, offer to open it:**
-```bash
-open -a Preview .viz/pop_bar.png  # Single plot (macOS)
-open -a Preview .viz/*.png        # All plots
-```
-
-## ID Watermarks
-
-Plots include a small, semi-transparent watermark showing the plot ID in the bottom-right corner by default. This helps track plots during iterative development.
-
-### Disabling Watermarks
-
-Add `--no-watermark` for clean/production versions:
-```bash
-python {SKILL_DIR}/scripts/viz_runner.py --file .viz/_draft.py --id my_plot --no-watermark
-```
-
-### When to Disable Watermarks
-
-Recognize these user requests as triggers for `--no-watermark`:
-- "clean version" / "clean copy"
-- "for presentation" / "presentation quality"
-- "production ready" / "final version"
-- "no watermark" / "without ID"
-- "export quality"
-
-## Refinement and Regeneration
-
-### Refining an Existing Plot
-1. Read the existing script from `.viz/<id>.py`
-2. Apply modifications
-3. Execute with a new ID (e.g., `pop_bar_2`)
-
-### Regenerating a Plot
-To regenerate while preserving the original:
-1. Read the existing script from `.viz/<id>.py`
-2. Write to temp file and execute via runner with the same ID:
-   ```bash
-   rm -f .viz/_draft.py
-   # Write script content to .viz/_draft.py
-   python {SKILL_DIR}/scripts/viz_runner.py --file .viz/_draft.py --id pop_bar --desc "Regenerated"
-   ```
-
-The runner's `get_unique_id()` will automatically create `pop_bar_2`, `pop_bar_3`, etc. if the ID exists, preserving the original.
-
-## Marimo Notebook Support
-
-For extracting and plotting data from marimo notebooks, see **[references/marimo.md](references/marimo.md)**.
-
-Key features:
-- Extract variables via AST-based dependency analysis
-- Prune notebooks to only required cells
-- `--show` mode for data inspection
-- `--target-line` for capturing intermediate state
-
-## Library Selection and Styling
-
-For guidance on choosing between matplotlib/seaborn and publication quality standards, see **[references/styling.md](references/styling.md)**.
+For extended iteration (5+ rounds of refinement), consider spawning a subagent to keep the main conversation clean.
