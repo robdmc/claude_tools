@@ -144,14 +144,14 @@ for bar, val in zip(bars, values):
 
 ## Integration with Presentations
 
-Reference saved graphs in Marp slides:
+Always copy graphs from `.viz/` into the presentation's `assets/` folder before referencing (see SKILL.md — Viz Integration). Then reference the local copy:
 
 ```markdown
 ---
 
 ## Analysis Results
 
-![w:700](../.viz/my_graph.png)
+![w:700](./assets/my_graph.png)
 
 Key finding: The data shows a clear upward trend.
 ```
