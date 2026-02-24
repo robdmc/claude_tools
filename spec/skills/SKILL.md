@@ -14,49 +14,51 @@ Interview users to produce well-defined specification documents for any artifact
 - **No filename** → ask for one
 - **File exists with content** → resumption mode (see below)
 - **New file** → begin interview
-- **Hint text after filename** → use as orientation for warm-up and plan (delegation from other skills)
+- **Hint text after filename** → use as orientation for warm-up (delegation from other skills)
 
 Output is always a markdown specification document, not the artifact itself.
 
+## The Interview Prompt
+
+The heart of this skill is adapting a proven interview prompt to the user's specific domain. The inspiration:
+
+> Read this spec and interview me in detail using AskUserQuestion about literally anything: technical implementation, UI & UX, concerns, tradeoffs, etc. but make sure the questions are not obvious. Be very in-depth and continue interviewing me continually until it's complete, then write the spec to the file.
+
+That prompt works great for software. The job of Phase 1 is to figure out what the equivalent angles are for whatever the user actually wants to spec — a presentation, a curriculum, a threat model, anything — and write those as the companion interview prompt file.
+
 ## Workflow
 
-### Phase 1 — Warm-Up
+### Phase 1 — Build the Interview Prompt
 
-1-2 orientation questions using AskUserQuestion. Always run, even with rich initial context.
+1-2 orientation questions using AskUserQuestion to understand the artifact and domain.
 
-- What is this artifact? Who is it for?
-- What's the most important thing it needs to get right?
+Then write `<filename>_interview_prompt.md` — a short, direct prompt that tells Claude how to interview for this specific artifact. It names the artifact, the key angles to probe (as suggestions, not limitations), and sets the tone. Keep it tight — a paragraph or two. Claude is smart; the prompt just needs to point it in the right direction.
 
-### Phase 2 — Interview Plan
+Example for a data pipeline presentation:
 
-Generate a short list of dimensions the interview will cover, tailored to this artifact type. Fully dynamic — no fixed taxonomy.
+> Interview me in detail about a Marp presentation explaining a forecasting pipeline to a technical audience. Probe narrative structure, how to present statistical models without losing the audience, diagram design, level of mathematical rigor, tradeoffs between completeness and slide count, what the audience must walk away understanding. Questions should be non-obvious and force real decisions.
 
-Show the plan to the user. They can add, remove, or reorder dimensions before the interview begins. Keep it to a few bullet points.
+Example for a threat model:
 
-### Phase 3 — Interview
+> Interview me in detail about a threat model for a patient-facing telehealth API. Probe attack surfaces, trust boundaries, data classification, authentication edge cases, third-party integration risks, incident response assumptions. Push on what I'm hand-waving.
 
-Iterative deep interview using AskUserQuestion, 1-2 questions per round. Conversational pacing — each question builds on the previous answer.
+This file is the primary output of Phase 1. If the session dies here, a fresh session can pick it up and run a good interview.
 
-Questions must be:
-- **Non-obvious** — skip things the user already told you
-- **Concrete** — force tradeoff decisions, not abstract preferences
-- **Deep** — probe edge cases, failure modes, unconsidered angles
+### Phase 2 — Interview
 
-Stop when coverage feels complete. No explicit completeness tracking — trust your judgment.
+Run the interview prompt you just wrote. Use AskUserQuestion, 1-2 questions per round. The angles in the prompt are suggestions — follow the conversation wherever it leads. Probe deep, skip the obvious, force tradeoffs.
 
-### Phase 4 — Write the Spec
+Stop when coverage feels complete. Trust your judgment.
 
-Write two files:
+### Phase 3 — Write the Spec
 
-1. **`<filename>`** — clean specification document. No interview metadata, no /spec noise. Readable by anyone: humans, implementation agents, other tools.
-
-2. **`<filename>_interview_prompt.md`** — companion interview prompt. A short, artifact-specific prompt — enough for a fresh session to resume interviewing about this spec. A few lines, like the original inspiration prompt, adapted to this artifact. Not a progress tracker or dimension checklist.
+Write **`<filename>`** — clean specification document. No interview metadata, no /spec noise. Readable by anyone: humans, implementation agents, other tools.
 
 Example: `/spec api_redesign.md` produces:
 - `api_redesign.md` — the spec
-- `api_redesign_interview_prompt.md` — the resumption prompt
+- `api_redesign_interview_prompt.md` — the interview prompt
 
-### Phase 5 — Critique
+### Phase 4 — Critique
 
 Always offer after writing. User can skip.
 
@@ -77,19 +79,20 @@ The critique loop can repeat if the user wants another round.
 
 When `/spec` opens an existing file:
 
-1. Look for companion `<filename>_interview_prompt.md` for artifact-specific interview guidance
+1. Look for companion `<filename>_interview_prompt.md` — this is your interview playbook, use it
 2. Read the spec body to understand what's been covered
-3. Enter warm-up with context: "I see you have a spec for X that covers Y and Z. What would you like to refine or expand?"
+3. Ask what to refine or expand, then resume interviewing using the prompt's angles
 
 ## Delegation
 
 Other skills invoke `/spec` by passing a hint: `/spec <filename> <hint text>`
 
-Everything after the filename is the hint. Use it the same way as the user's initial description — orientation for warm-up and plan generation. The hint orients the interview; it doesn't prescribe it.
+Everything after the filename is the hint. Use it as orientation when building the interview prompt in Phase 1.
 
 ## Principles
 
-- **Minimal scaffolding** — light structure, heavy reliance on Claude's judgment
-- **Everything is an interview** — warm-up, main interview, and critique all use AskUserQuestion
-- **The spec stands alone** — the critique agent sees only the file; if something isn't clear from the document alone, that's a real problem
-- **Clean separation** — spec file is a clean document; interview metadata lives in the companion prompt file
+- **The interview prompt is the skill** — Phase 1 adapts a generic "interview me deeply" prompt to the user's domain. Everything flows from that.
+- **Angles are suggestions, not limitations** — the prompt names dimensions to explore, but the conversation leads. Follow it.
+- **Minimal scaffolding** — Claude is smart. The prompt just points it in the right direction.
+- **The spec stands alone** — the critique agent sees only the file; if something isn't clear from the document alone, that's a real problem.
+- **Clean separation** — spec file is a clean document; the interview prompt is reusable interview instructions, not a decisions log.
