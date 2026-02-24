@@ -27,9 +27,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Protocol
 
-# Import marimo handler (all marimo-specific code lives there)
-from marimo_handler import MarimoHandler
-
 # Resolve to absolute path immediately so it works even when subprocess
 # runs with a different cwd (e.g., uv run --directory changes cwd)
 VIZ_DIR = Path(".viz").resolve()
@@ -49,12 +46,10 @@ class VizMetadata:
     png_path: Path
     script_path: Path
     pid: int
-    source_notebook: Path | None = None
-    target_vars: list[str] | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
-        data = {
+        return {
             "id": self.viz_id,
             "desc": self.description,
             "png": str(self.png_path),
@@ -62,11 +57,6 @@ class VizMetadata:
             "created": datetime.now().isoformat(timespec="seconds"),
             "pid": self.pid,
         }
-        if self.source_notebook:
-            data["source_notebook"] = str(self.source_notebook)
-        if self.target_vars:
-            data["target_vars"] = self.target_vars
-        return data
 
     def write(self, viz_dir: Path = VIZ_DIR) -> Path:
         """Write metadata to JSON file."""
@@ -140,15 +130,12 @@ class DefaultHandler:
 # Handler registry
 HANDLERS: dict[str, type[SourceHandler]] = {
     "default": DefaultHandler,
-    "marimo": MarimoHandler,
 }
 
 
 def get_handler(args: argparse.Namespace) -> SourceHandler:
     """Select handler based on CLI args."""
-    if getattr(args, "marimo", False):
-        return MarimoHandler()
-    # Future: elif args.sql: return SQLHandler()
+    # Future: if args.sql: return SQLHandler()
     return DefaultHandler()
 
 
@@ -175,8 +162,8 @@ def run_plot(
         plot_code: The plotting code (or complete script for DefaultHandler)
         viz_id: ID for the visualization
         description: Optional description
-        source_path: Optional source file (for MarimoHandler, etc.)
-        target_var: Optional target variable (for MarimoHandler, etc.)
+        source_path: Optional source file for the handler
+        target_var: Optional target variable for the handler
         watermark: Whether to add ID watermark (default True)
         **handler_kwargs: Additional handler-specific options
 
@@ -229,8 +216,6 @@ def run_plot(
                 png_path=png_path,
                 script_path=script_path,
                 pid=result.process.pid,
-                source_notebook=source_path if isinstance(handler, MarimoHandler) else None,
-                target_vars=[target_var] if target_var else None,
             ).write()
             return True, "Plot generated successfully", png_path
 
@@ -282,7 +267,7 @@ def run_show(
     Args:
         handler: The SourceHandler to use for building the script
         target_var: Variable to inspect
-        source_path: Optional source file (for MarimoHandler, etc.)
+        source_path: Optional source file for the handler
         num_rows: Number of rows to display
         **handler_kwargs: Additional handler-specific options
 
@@ -693,57 +678,6 @@ def handle_list() -> int:
     return 0
 
 
-def handle_marimo_show(args: argparse.Namespace) -> int:
-    """Handle --marimo --show command. Returns exit code."""
-    notebook_path = Path(args.notebook_path)
-
-    handler = MarimoHandler()
-    success, output = run_show(
-        handler=handler,
-        target_var=args.target_var,
-        source_path=notebook_path,
-        num_rows=args.rows,
-    )
-
-    if success:
-        print(output)
-    else:
-        print(f"error: {output}", file=sys.stderr)
-
-    return 0 if success else 1
-
-
-def handle_marimo_plot(args: argparse.Namespace, plot_code: str) -> int:
-    """Handle --marimo plot command. Returns exit code."""
-    notebook_path = Path(args.notebook_path)
-    final_id = get_unique_id(args.suggested_id)
-
-    handler = MarimoHandler()
-    success, message, png_path = run_plot(
-        handler=handler,
-        plot_code=plot_code,
-        viz_id=final_id,
-        description=args.description,
-        source_path=notebook_path,
-        target_var=args.target_var,
-        target_line=args.target_line,
-        watermark=not args.no_watermark,
-    )
-
-    # Print human-readable output
-    print(f"Plot: {final_id}")
-    if args.description:
-        print(f'  "{args.description}"')
-    if png_path:
-        print(f"  png: {png_path}")
-    print(f"  source: {notebook_path}")
-
-    if not success:
-        print(f"  error: {message}")
-
-    return 0 if success else 1
-
-
 def handle_standalone_script(args: argparse.Namespace, script_content: str) -> int:
     """Handle standalone script execution. Returns exit code."""
     final_id = get_unique_id(args.suggested_id)
@@ -787,11 +721,6 @@ def main():
     parser.add_argument("--clean", action="store_true", help="Remove all files from .viz/")
     parser.add_argument("--list", action="store_true", help="List all visualizations")
 
-    # Marimo notebook support
-    parser.add_argument("--marimo", action="store_true", help="Enable marimo notebook mode")
-    parser.add_argument("--notebook", dest="notebook_path", help="Path to marimo notebook (.nb.py)")
-    parser.add_argument("--target-var", dest="target_var", help="Variable to extract from notebook")
-    parser.add_argument("--target-line", dest="target_line", type=int, help="Line number for intermediate state capture")
     parser.add_argument("--show", action="store_true", help="Show mode: print dataframe info to console instead of plotting")
     parser.add_argument("--rows", dest="rows", type=int, default=5, help="Number of rows to display in show mode (default: 5)")
     parser.add_argument("--no-watermark", dest="no_watermark", action="store_true", help="Disable ID watermark (for presentation/production)")
@@ -805,36 +734,6 @@ def main():
     # Handle list action
     if args.list:
         sys.exit(handle_list())
-
-    # Handle marimo notebook mode
-    if args.marimo:
-        if not args.notebook_path:
-            print("error: --marimo requires --notebook path", file=sys.stderr)
-            sys.exit(1)
-        if not args.target_var:
-            print("error: --marimo requires --target-var", file=sys.stderr)
-            sys.exit(1)
-
-        notebook_path = Path(args.notebook_path)
-        if not notebook_path.exists():
-            print(f"error: Notebook not found: {notebook_path}", file=sys.stderr)
-            sys.exit(1)
-
-        # Handle --show mode (print dataframe to console)
-        if args.show:
-            sys.exit(handle_marimo_show(args))
-
-        # Read plot code from stdin
-        if sys.stdin.isatty():
-            print("error: Pipe plot code to stdin for marimo mode", file=sys.stderr)
-            sys.exit(1)
-        plot_code = sys.stdin.read()
-
-        if not plot_code.strip():
-            print("error: Empty plot code provided", file=sys.stderr)
-            sys.exit(1)
-
-        sys.exit(handle_marimo_plot(args, plot_code))
 
     # Handle standalone script mode
     if args.script_file:

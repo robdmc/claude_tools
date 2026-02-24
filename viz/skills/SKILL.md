@@ -1,6 +1,6 @@
 ---
 name: viz
-description: Data visualization and inspection skill. Use when user asks to plot, chart, graph, or visualize data from files or marimo notebooks. Also use for DataFrame inspection when user wants to "show", "display", or "see" data structure (columns, dtypes, first N rows). Supports matplotlib/seaborn for plots, marimo notebook extraction, and artifact management in .viz/.
+description: Data visualization and inspection skill. Use when user asks to plot, chart, graph, or visualize data from files. Also use for DataFrame inspection when user wants to "show", "display", or "see" data structure (columns, dtypes, first N rows). Supports matplotlib/seaborn for plots and artifact management in .viz/.
 allowed-tools: Read, Write(.viz/_draft.py), Glob(.viz/*), Grep(.viz/*), Bash(rm -f .viz/_draft.py), Bash(python {SKILL_DIR}/scripts/viz_runner.py:*), Bash(uv run --directory {SKILL_DIR}/scripts python *), Bash(open *)
 ---
 
@@ -27,7 +27,6 @@ allowed-tools: Read, Write(.viz/_draft.py), Glob(.viz/*), Grep(.viz/*), Bash(rm 
 - [Artifact Management](#artifact-management)
 - [Skill Workflow](#skill-workflow)
 - [Refinement and Regeneration](#refinement-and-regeneration)
-- [Marimo Notebook Support](#marimo-notebook-support) (see references/marimo.md)
 - [Library Selection and Styling](#library-selection-and-styling) (see references/styling.md)
 
 ## Purpose
@@ -244,16 +243,6 @@ To regenerate while preserving the original:
    ```
 
 The runner's `get_unique_id()` will automatically create `pop_bar_2`, `pop_bar_3`, etc. if the ID exists, preserving the original.
-
-## Marimo Notebook Support
-
-For extracting and plotting data from marimo notebooks, see **[references/marimo.md](references/marimo.md)**.
-
-Key features:
-- Extract variables via AST-based dependency analysis
-- Prune notebooks to only required cells
-- `--show` mode for data inspection
-- `--target-line` for capturing intermediate state
 
 ## Library Selection and Styling
 

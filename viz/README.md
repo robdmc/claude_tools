@@ -1,12 +1,11 @@
 # Viz
 
-Data visualization and inspection skill for Claude Code. Create matplotlib/seaborn plots from data files or marimo notebooks, inspect DataFrames, and manage a library of visualizations.
+Data visualization and inspection skill for Claude Code. Create matplotlib/seaborn plots from data files, inspect DataFrames, and manage a library of visualizations.
 
 ## Features
 
 - **Visualization**: Generate publication-quality plots with matplotlib and seaborn
 - **Data Inspection**: View DataFrame shape, columns, dtypes, and sample rows
-- **Marimo Integration**: Extract variables from marimo notebooks via dependency analysis
 - **Artifact Management**: Plots saved to `.viz/` with metadata and self-contained scripts
 - **ID Watermarks**: Plots include a subtle ID watermark for easy tracking during iteration
 - **Refinement**: Modify existing plots while preserving originals with auto-incrementing IDs
@@ -19,10 +18,6 @@ Ask Claude to visualize your data:
 
 ```
 Create a bar chart of sales by region from /path/to/sales.csv
-```
-
-```
-Plot the forecast data from my marimo notebook at /path/to/forecast.nb.py
 ```
 
 ### Inspecting Data
@@ -83,8 +78,7 @@ For clean/production versions, ask for "no watermark", "clean version", or "pres
 
 ## How It Works
 
-1. **For standalone data**: Claude generates a complete matplotlib script, injects `savefig()`, executes it, and returns the paths
-2. **For marimo notebooks**: The skill parses the notebook AST, resolves dependencies to find required cells, assembles a pruned notebook with the plotting code, and executes it
+1. Claude generates a complete matplotlib script, injects `savefig()`, executes it, and returns the paths
 
 All plots are saved to `.viz/` with:
 - `<id>.png` - The rendered plot (with ID watermark by default)
@@ -104,7 +98,6 @@ The skill uses a Python environment fallback chain:
 The skill includes its own `pyproject.toml` with:
 - pandas, polars (data handling)
 - matplotlib, seaborn (plotting)
-- marimo (notebook support)
 
 ## Installation
 
