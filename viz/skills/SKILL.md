@@ -6,7 +6,7 @@ description: >
   Supports matplotlib/seaborn with interactive display and PNG output.
 allowed-tools: >
   Read, Write(.viz/*), Glob(.viz/*),
-  Bash(uv run --directory {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py *),
+  Bash(uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py *),
   Bash
 ---
 
@@ -75,17 +75,17 @@ plt.show()
 
 Create a visualization:
 ```bash
-uv run --directory {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py <name>
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py <name>
 ```
 
 Update an existing visualization (overwrites the PNG):
 ```bash
-uv run --directory {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py <name> --overwrite
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py <name> --overwrite
 ```
 
 List all existing visualizations:
 ```bash
-uv run --directory {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py --list
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py --list
 ```
 
 ## Efficiency Tips
@@ -93,7 +93,7 @@ uv run --directory {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py 
 - **Parallelize** independent Write calls (e.g., writing the data-generation script and the plot script at the same time when they are independent).
 - **Chain** data generation with the runner in a single Bash call where possible:
   ```bash
-  python -c "import shutil; shutil.copy('/path/to/source.parquet', '.viz/sales.parquet')" && uv run --directory {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py sales
+  python -c "import shutil; shutil.copy('/path/to/source.parquet', '.viz/sales.parquet')" && uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py sales
   ```
 - For simple data copies, combine into one Bash invocation. Write both scripts in parallel, then chain execution sequentially.
 
@@ -108,6 +108,6 @@ To modify an existing plot, use the read-modify-overwrite pattern:
 1. Read `.viz/<name>.py`
 2. Modify the script
 3. Overwrite `.viz/<name>.py` (using the Write tool)
-4. Run: `uv run --directory {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py <name> --overwrite`
+4. Run: `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py <name> --overwrite`
 
 For extended iteration (5+ rounds of refinement), consider spawning a subagent to keep the main conversation clean.
