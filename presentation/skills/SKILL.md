@@ -1,6 +1,7 @@
 ---
 name: presentation
 description: Build a presentation from a document, PPTX, or PDF. Invoke as "/presentation <filename>". Supports spec-driven refinement via /spec delegation, PPTX/PDF content extraction, skeleton creation, and full build pipeline.
+allowed-tools: Read, Write, Edit, Glob, Grep, Bash, Task, AskUserQuestion
 ---
 
 # Presentation Skill
@@ -141,11 +142,15 @@ Read the full input document. Analyze it holistically to produce three outputs:
 
 **Customized template** — take the base template (see **Slide Template** below) and replace the default accent color (`#4472C4`) with the primary color from the design brief. Adjust `.callout` border color, `th` background, and any other accent uses. This produces a deck-specific template that all slide agents share.
 
-### Step 2: Resolve assets
+### Step 2: Resolve assets and prepare output directory
 
-- Resolve image paths from the slide plan. Paths in the source document are relative to the input file's directory — resolve them to absolute paths, then copy to `presentations/<slug>/assets/`.
-- If the document references `[viz: name]` patterns, fuzzy-match against `.viz/*.png`; if ambiguous, list matches and ask; if no match, warn and omit (build continues).
-- If `.viz/` does not exist and the document references viz embeds, warn and skip.
+Create the output directory structure first, then resolve assets:
+
+1. **Create directories**: `presentations/<slug>/slides/`, `presentations/<slug>/assets/`, `presentations/<slug>/thumbnails/`
+2. **Write a placeholder** to `presentations/<slug>/slides/.gitkeep` — this establishes write permissions for the output directory early in the session, before parallel agents need to write there.
+3. **Resolve image paths** from the slide plan. Paths in the source document are relative to the input file's directory — resolve them to absolute paths, then copy to `presentations/<slug>/assets/`.
+4. If the document references `[viz: name]` patterns, fuzzy-match against `.viz/*.png`; if ambiguous, list matches and ask; if no match, warn and omit (build continues).
+5. If `.viz/` does not exist and the document references viz embeds, warn and skip.
 
 ### Step 3: Generate all slides in parallel
 
@@ -164,8 +169,9 @@ Each agent receives:
 
 Each agent's workflow:
 1. **Generate HTML** — Translate the slide spec into a complete HTML slide document (full `<html>` with customized template CSS in `<head>`, slide content in `<body>`). Follow all html2pptx constraints strictly. Follow the design brief for color usage, style, and audience-appropriate complexity. Dimensions: `width: 720pt; height: 405pt`. If the slide has a diagram, render boxes/labels/backgrounds as `<div>` elements with all text wrapped in `<p>` tags. Strip notes content — it does not appear on the slide. Image paths use `./assets/<filename>`.
-2. **Generate diagram snippet** — If the slide contains a diagram, also produce a PptxGenJS code snippet for connectors, arrows, and lines. The snippet operates on a variable named `slide` (the object returned by `html2pptx`). **Colors must omit the `#` prefix** — use `"4C72B0"` not `"#4C72B0"` (incorrect format corrupts the file). Example: `slide.addShape(pptx.ShapeType.rightArrow, { x: 2, y: 1.5, w: 1, h: 0.5, fill: { color: "4C72B0" } });`
-3. **Preview** — Write the HTML to `presentations/<slug>/slides/slide-<n>.html`, then screenshot it by writing and running this Node.js script:
+2. **Write HTML to disk** — Write the HTML to `presentations/<slug>/slides/slide-<n>.html`. This file write is required — the agent MUST persist its output to disk.
+3. **Write diagram snippet to disk** — If the slide contains a diagram, produce a PptxGenJS code snippet for connectors, arrows, and lines, and write it to `presentations/<slug>/slides/slide-<n>.diagram.js`. The snippet operates on a variable named `slide` (the object returned by `html2pptx`). **Colors must omit the `#` prefix** — use `"4C72B0"` not `"#4C72B0"` (incorrect format corrupts the file). Example: `slide.addShape(pptx.ShapeType.rightArrow, { x: 2, y: 1.5, w: 1, h: 0.5, fill: { color: "4C72B0" } });`
+4. **Preview** — Screenshot the HTML by writing and running this Node.js script:
    ```javascript
    const { chromium } = require('playwright');
    (async () => {
@@ -179,16 +185,17 @@ Each agent's workflow:
    // Run: node preview.js <html-path> <png-path>
    ```
    The 960×540 viewport matches 720pt × 405pt at screen resolution (1pt = 4/3 px). Inspect the PNG for text overflow, clipping, and layout problems. **PptxGenJS connector/arrow shapes from diagrams are not visible in this preview** — they are added post-conversion and validated after assembly.
-4. **Refine** — If the preview shows problems in the HTML portion, adjust and re-preview (up to 2 refinement passes).
-5. **Return** — Return: (a) the path to the final HTML file at `presentations/<slug>/slides/slide-<n>.html`, and (b) the PptxGenJS diagram snippet string if applicable (or `null`).
+5. **Refine** — If the preview shows problems in the HTML portion, adjust and re-preview (up to 2 refinement passes).
+6. **Return** — Return a short status message: `OK: slide-<n>` (with diagram) or `OK: slide-<n> (no diagram)`. **CRITICAL: Do NOT include any HTML content or diagram code in the response. All content MUST be written to disk. If a file write is denied or fails, return `WRITE_FAILED: slide-<n>` — never paste the content into the response as a fallback. Context bloat from returned HTML content will degrade the build.**
 
-**Agent failure:** If an agent fails or returns malformed output, re-spawn a single replacement agent for that slide with the same inputs. If the retry also fails, abort the build and report which slide failed.
-
-Collect all results in slide order before proceeding.
+**Agent failure handling:**
+- `OK` responses: slide is complete on disk, proceed.
+- `WRITE_FAILED` responses: tell the user "Slide agents need file write permission to `presentations/<slug>/slides/`. Please approve writes when prompted." Then re-spawn only the failed agents. If retry also fails, abort and report which slides failed.
+- Agent crash or malformed output: re-spawn once, then abort if it fails again.
 
 ### Step 4: Resolve pptx skill paths and assemble `build.js`
 
-Before writing `build.js`, resolve paths to `html2pptx.js` and `thumbnail.py` from the installed `document-skills:pptx` skill:
+Resolve paths to `html2pptx.js` and `thumbnail.py` from the installed `document-skills:pptx` skill:
 
 ```
 Glob pattern: "**/pptx/scripts/html2pptx.js" under ~/.claude/
@@ -197,7 +204,16 @@ Glob pattern: "**/pptx/scripts/thumbnail.py"  under ~/.claude/
 
 If either file is not found, abort and tell the user: "document-skills:pptx is required but html2pptx.js / thumbnail.py was not found. Install the pptx skill first."
 
-Write `presentations/<slug>/build.js` with the resolved `html2pptx.js` **absolute path** baked in. This file runs from `presentations/<slug>/` (all relative paths are relative to it):
+Spawn a Task agent (`subagent_type: general-purpose`, `model: sonnet`) to assemble `build.js`. Pass it:
+- The absolute path to `html2pptx.js` (resolved above)
+- The `presentations/<slug>/` directory path
+- The total slide count
+
+The assembly agent's workflow:
+1. **List slide files**: Glob `presentations/<slug>/slides/slide-*.html` to confirm all expected slides exist.
+2. **List diagram snippets**: Glob `presentations/<slug>/slides/slide-*.diagram.js` to identify which slides have diagram code.
+3. **Read each diagram snippet file** (these are small — just PptxGenJS code).
+4. **Write `build.js`** at `presentations/<slug>/build.js` with the resolved `html2pptx.js` absolute path baked in. The file runs from `presentations/<slug>/` (all relative paths are relative to it):
 
 ```javascript
 const pptxgen = require('pptxgenjs');
@@ -209,11 +225,11 @@ pptx.layout = 'LAYOUT_16x9';
 (async () => {
   // Slide 0
   const { slide: slide0 } = await html2pptx('slides/slide-0.html', pptx);
-  // [diagram snippet for slide 0, if present]
+  // [inline diagram snippet from slide-0.diagram.js, if it exists]
 
   // Slide 1
   const { slide: slide1 } = await html2pptx('slides/slide-1.html', pptx);
-  // [diagram snippet for slide 1, if present]
+  // [inline diagram snippet from slide-1.diagram.js, if it exists]
 
   // ... repeat for all slides
 
@@ -221,21 +237,45 @@ pptx.layout = 'LAYOUT_16x9';
 })();
 ```
 
+5. **Install dependencies**: Run `cd presentations/<slug> && npm install pptxgenjs sharp 2>&1 | tail -5` — verify both packages install successfully before returning.
+6. **Return** the path to `build.js`.
+
 Notes content is stripped from HTML by agents (step 3.1) — no additional strip step needed in `build.js`.
 
-### Step 5: Execute and validate
+### Step 5: Validate slides and build
 
 Spawn a Task agent (`subagent_type: general-purpose`, `model: sonnet`) with these explicit inputs:
 - The absolute path to `build.js`: `presentations/<slug>/build.js`
 - The absolute path to `thumbnail.py` (resolved in Step 4)
 - The `presentations/<slug>/` directory path
+- The html2pptx constraint rules (inlined verbatim from this skill document)
 
 The sub-agent's workflow:
-1. **Build**: `cd presentations/<slug> && node build.js`
-2. **Generate thumbnail grid**: `python <thumbnail.py absolute path> presentations/<slug>/slides.pptx presentations/<slug>/thumbnails`
-3. **Inspect** the thumbnail grid for layout issues — especially connector/arrow placement in diagram slides (this is the first time those elements are visible)
-4. **If diagram issues are found**: edit the relevant PptxGenJS snippets in `build.js`, re-run `node build.js`, and re-generate thumbnails. **Limit: 1 rebuild pass.**
-5. **Return** the path to the final output: `presentations/<slug>/slides.pptx`
+
+1. **Validate all slides before building** — Read every `presentations/<slug>/slides/slide-*.html` file. Check each against the html2pptx constraints:
+   - No CSS gradients
+   - No backgrounds, borders, or shadows on text elements (`<p>`, `<h1>`-`<h6>`, `<span>`) — only on `<div>`
+   - No unwrapped text in `<div>` — all text in `<p>`, `<h1>`-`<h6>`, `<ul>`, `<ol>`
+   - No inline margins on `<b>`, `<i>`, `<u>`, `<span>`
+   - No manual bullet symbols (`•`, `–`) — must use `<ul>`/`<ol>`
+   - Web-safe fonts only
+   - PptxGenJS color values without `#` prefix
+
+   Fix all violations found across ALL slides before proceeding. Do not run `build.js` until all slides pass validation.
+
+2. **Build**: `cd presentations/<slug> && NODE_PATH=./node_modules node build.js 2>&1`
+
+3. **If build fails**: read the error message, fix the offending slide HTML, and re-run. **Limit: 2 fix-rebuild cycles.** If still failing after 2 cycles, abort and report the error.
+
+4. **Generate thumbnail grid**: `python <thumbnail.py absolute path> presentations/<slug>/slides.pptx presentations/<slug>/thumbnails`
+
+5. **Inspect** the thumbnail grid for layout issues — especially connector/arrow placement in diagram slides (this is the first time those elements are visible)
+
+6. **If diagram issues are found**: edit the relevant PptxGenJS snippets in `build.js`, re-run `node build.js`, and re-generate thumbnails. **Limit: 1 rebuild pass.**
+
+7. **Return** the path to the final output: `presentations/<slug>/slides.pptx`
+
+**IMPORTANT: Do NOT read `html2pptx.js` source code.** All constraint rules are provided above — apply them directly. Reading the converter source wastes context and does not help fix HTML violations.
 
 ### Step 6: Deliver
 

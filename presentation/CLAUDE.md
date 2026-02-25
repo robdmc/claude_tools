@@ -41,6 +41,13 @@ These decisions were made intentionally — preserve them unless explicitly chan
 - **Spec integration**: Via `/spec <filename> <hint>` — the spec skill is never modified by this skill. The hint text steers the interview toward presentation-relevant angles (structure, style, viz, audience).
 - **PPTX/PDF extraction**: Binary inputs are extracted to skeleton-structured markdown before entering the normal flow. The build pipeline always reads markdown — extraction is a pre-processing step.
 - **Always-offer choice**: Every invocation path (PPTX, PDF, new file, existing file) lets the user choose between spec interview and immediate action. No path forces either workflow.
+- **Agents write to disk, never return content**: Slide agents MUST write HTML and diagram snippets to files and return only a short status string (`OK: slide-N` or `WRITE_FAILED: slide-N`). This prevents context bloat in the orchestrator — returning full HTML from N parallel agents would degrade quality. If agents can't write (permission denied), they report failure rather than dumping content.
+- **Diagram snippets on disk**: Agents write PptxGenJS snippets to `slide-<n>.diagram.js` files. The assembly agent reads these files when building `build.js`. The orchestrator never sees snippet code.
+- **Assembly is agentified**: Step 4 (build.js assembly) is a separate agent that reads HTML paths and diagram snippet files from disk. This keeps the orchestrator's context clean — it only passes the slug, slide count, and resolved tool paths.
+- **Permission warm-up**: Step 2 creates the output directory structure and writes a placeholder file before agents spawn. This establishes write permissions early so parallel agent writes are more likely to be auto-approved.
+- **Validate-first, build-once**: The Step 5 agent reads ALL slide HTML files and fixes all html2pptx constraint violations before running `build.js`. This avoids the costly serial loop of build → error on slide N → fix → rebuild → error on slide N+1. One validation pass + one build is far faster than N incremental rebuilds.
+- **Dependencies pre-installed**: The assembly agent (Step 4) runs `npm install pptxgenjs sharp` after writing `build.js`. The Step 5 agent never hunts for dependencies.
+- **No reading html2pptx.js**: The validation agent applies constraint rules from the skill document. Reading the converter source code wastes turns and context without helping fix violations.
 
 ## Making Changes
 
