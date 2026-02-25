@@ -46,9 +46,9 @@ echo "Compiling: $INPUT -> $OUTPUT"
 # --no-stdin: Prevents hanging waiting for input
 # --allow-local-files: Enables local image references
 if command -v marp &> /dev/null; then
-    marp --no-stdin --allow-local-files "$INPUT" -o "$OUTPUT"
+    marp --no-stdin --allow-local-files --html "$INPUT" -o "$OUTPUT"
 else
-    npx @marp-team/marp-cli --no-stdin --allow-local-files "$INPUT" -o "$OUTPUT"
+    npx @marp-team/marp-cli --no-stdin --allow-local-files --html "$INPUT" -o "$OUTPUT"
 fi
 
 echo "Done: $OUTPUT"
