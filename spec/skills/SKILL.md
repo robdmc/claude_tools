@@ -20,11 +20,11 @@ Output is always a markdown specification document, not the artifact itself.
 
 ## The Interview Prompt
 
-The heart of this skill is adapting a proven interview prompt to the user's specific domain. The inspiration:
+The heart of this skill is a proven interview prompt:
 
-> Read this spec and interview me in detail using AskUserQuestion about literally anything: technical implementation, UI & UX, concerns, tradeoffs, etc. but make sure the questions are not obvious. Be very in-depth and continue interviewing me continually until it's complete, then write the spec to the file.
+> You are creating a specification document. Interview me in detail using AskUserQuestion about literally anything. But make sure the questions are not obvious. Be very in-depth and continue interviewing me continually until it's complete, then write the spec to the file.
 
-That prompt works great for software. The job of Phase 1 is to figure out what the equivalent angles are for whatever the user actually wants to spec — a presentation, a curriculum, a threat model, anything — and write those as the companion interview prompt file.
+That's the engine. It works as-is for software. The only job of Phase 1 is to figure out 3-4 domain-specific angles to suggest — then bolt them onto this core prompt. The angles are short — a few words each, not paragraphs. They're suggestions, not limitations. Claude will figure out the rest.
 
 ## Workflow
 
@@ -32,17 +32,13 @@ That prompt works great for software. The job of Phase 1 is to figure out what t
 
 1-2 orientation questions using AskUserQuestion to understand the artifact and domain.
 
-Then write `<filename>_interview_prompt.md` — a short, direct prompt that tells Claude how to interview for this specific artifact. It names the artifact, the key angles to probe (as suggestions, not limitations), and sets the tone. Keep it tight — a paragraph or two. Claude is smart; the prompt just needs to point it in the right direction.
+Then write `<filename>_interview_prompt.md` following this template:
 
-Example for a data pipeline presentation:
+> You are creating a specification document for **[artifact description]**. Interview me in detail using AskUserQuestion about literally anything. But make sure the questions are not obvious. Be very in-depth and continue interviewing me continually until it's complete, then write the spec to the file.
+>
+> Angles you may want to consider: [3-4 brief, domain-specific angles]
 
-> Interview me in detail about a Marp presentation explaining a forecasting pipeline to a technical audience. Probe narrative structure, how to present statistical models without losing the audience, diagram design, level of mathematical rigor, tradeoffs between completeness and slide count, what the audience must walk away understanding. Questions should be non-obvious and force real decisions.
-
-Example for a threat model:
-
-> Interview me in detail about a threat model for a patient-facing telehealth API. Probe attack surfaces, trust boundaries, data classification, authentication edge cases, third-party integration risks, incident response assumptions. Push on what I'm hand-waving.
-
-This file is the primary output of Phase 1. If the session dies here, a fresh session can pick it up and run a good interview.
+If the session dies after Phase 1, a fresh session can pick up this file and run a good interview.
 
 ### Phase 2 — Interview
 
