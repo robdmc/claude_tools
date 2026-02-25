@@ -4,17 +4,11 @@ Instructions for Claude sessions working on this skill.
 
 ## Before Making Changes
 
-1. **Invoke the skill-creator skill** for guidance on skill development best practices:
-   ```
-   /document-skills:skill-creator
-   ```
-
-2. **Read the current skill files** to understand the existing structure:
-   - `skills/SKILL.md` - Main skill definition (Claude reads this)
-   - `skills/references/workflows.md` - Detailed workflow examples
-   - `skills/references/marp-syntax.md` - Marp syntax reference
-   - `skills/references/chart-styling.md` - Graph styling guidelines
-   - `skills/scripts/compile_marp.sh` - Compilation script
+Read the current skill files to understand the existing structure:
+- `skills/SKILL.md` — Main skill definition (Claude reads this)
+- `skills/references/component-map.md` — HTML patterns for slide elements
+- `skills/references/template.html` — Base slide HTML/CSS template
+- `skills/references/skeleton.md` — Template for new presentation outlines
 
 ## Skill Architecture
 
@@ -24,79 +18,59 @@ presentation/
 ├── CLAUDE.md                       # This file - development instructions
 └── skills/
     ├── SKILL.md                    # Main skill definition (required)
-    ├── scripts/
-    │   └── compile_marp.sh         # Marp compilation wrapper
     └── references/
-        ├── workflows.md            # Detailed workflow documentation
-        ├── marp-syntax.md          # Marp syntax reference
-        └── chart-styling.md        # Matplotlib styling for graphs
+        ├── skeleton.md             # Skeleton for new presentation outlines
+        ├── template.html           # Base slide HTML/CSS template
+        └── component-map.md        # HTML patterns for slide elements
 ```
 
 ## Key Design Decisions
 
-These decisions were made intentionally - preserve them unless explicitly changing:
+These decisions were made intentionally — preserve them unless explicitly changing:
 
-- **Terminology**: User says "chart" for slides, "graph" for visualizations
-- **Location**: All presentations in `presentations/` folder at project root
-- **Self-contained**: Each presentation has its own `assets/` directory
-- **Viz integration**: Copy images from `.viz/` into `assets/` for portability
-- **Slide reference**: By title (more stable than numbers)
-- **Blank canvas**: Title-only slides when creating from outline
-- **CSS**: Embedded in each presentation's frontmatter (self-contained)
-- **Context tracking**: Skill infers active presentation and focused slide from conversation
+- **No sketch format**: Input is any prose document. No intermediate sketch conversion step.
+- **Design phase**: The main agent reads the full document and produces a slide plan, design brief, and customized template before any slides are generated. This ensures cross-slide coherence.
+- **Template customization**: The base template has a default accent color (#4472C4) that gets replaced with the primary color from the design brief during the design phase.
+- **Pipeline**: Design phase → parallel HTML-generating agents → document-skills:pptx → PPTX output.
+- **Diagram approach**: Hybrid — HTML `<div>` elements for boxes/labels (html2pptx converts natively), PptxGenJS snippets for connectors/arrows/lines.
+- **Slug**: Derived from the `#` title heading — lowercase, spaces → hyphens, non-alphanumeric removed.
+- **Location**: All presentations in `presentations/<slug>/` at project root.
+- **Self-contained**: Each presentation has its own `assets/` directory.
+- **Asset resolution**: Image paths from the source document are resolved relative to the input file's directory, not the output directory.
+- **Model**: All sub-agents (slide agents and pptx execution agent) use `model: sonnet`.
+- **Spec integration**: Via `/spec <filename> <hint>` — the spec skill is never modified by this skill. The hint text steers the interview toward presentation-relevant angles (structure, style, viz, audience).
+- **PPTX/PDF extraction**: Binary inputs are extracted to skeleton-structured markdown before entering the normal flow. The build pipeline always reads markdown — extraction is a pre-processing step.
+- **Always-offer choice**: Every invocation path (PPTX, PDF, new file, existing file) lets the user choose between spec interview and immediate action. No path forces either workflow.
 
 ## Making Changes
 
 ### Updating SKILL.md
 
 This is what Claude reads when the skill is triggered. Keep it:
-- Concise but complete
-- Focused on "what Claude needs to do"
-- Well-organized with clear sections
+- Complete — covers all invocation paths, build steps, and edge cases
+- Accurate — the HTML template block in SKILL.md must match `references/template.html`
+
+SKILL.md contains inlined sections that slide agents receive in their prompts:
+1. The customized HTML/CSS template — base matches `references/template.html`, accent color replaced per-deck in design phase
+2. The html2pptx constraints — derived from the pptx skill's `html2pptx.md`; if the pptx skill updates its validation rules, update the constraints section in SKILL.md
+3. The Playwright preview script — self-contained, no external dependencies beyond Playwright
+4. The slide element patterns from `references/component-map.md`
+
+When changing the base template, update **both** `SKILL.md` (the inlined block) and `references/template.html`.
 
 ### Updating references/
 
-These provide detailed examples and reference material:
-- `workflows.md` - Add new workflow examples here
-- `marp-syntax.md` - Marp-specific syntax details
-- `chart-styling.md` - Matplotlib styling for presentation graphs
-
-### Updating scripts/
-
-The `compile_marp.sh` script:
-- Accepts presentation slug as first argument
-- Compiles from `presentations/<slug>/slides.md`
-- Outputs to same directory
+- `template.html` — Update when changing base slide styling. Mirror changes into SKILL.md.
+- `component-map.md` — Update when adding HTML patterns or changing output conventions. All `<div>` examples must wrap text in `<p>` tags (html2pptx constraint).
+- `skeleton.md` — Update when changing the outline template for new presentations.
 
 ## Updating README.md
 
-After making changes to the skill, update `README.md` to reflect those changes. The README is for humans and should:
-
-1. Explain what the skill does in plain language
-2. Show the project structure
-3. Provide quick start examples
-4. Document all three workflows with user-facing examples
-5. List available commands/operations
-6. Include troubleshooting tips
-
-Keep the README in sync with SKILL.md - if you change functionality in SKILL.md, update the corresponding section in README.md.
-
-## Testing Changes
-
-After modifying the skill:
-
-1. Create a test presentation using the blank canvas workflow
-2. Add content to individual slides
-3. Import a viz graph and verify it copies to assets/
-4. Compile to PDF and verify output
-5. Test context inference (focus shifting, active deck)
-6. Test the context synthesis workflow
+After making changes to the skill, update `README.md` to reflect those changes. Keep it in sync with `SKILL.md`.
 
 ## Integration Points
 
 This skill integrates with:
-
-- **Viz skill**: Outputs to `.viz/`, presentation copies to `assets/`
-- **Scribe skill**: Notes in `.scribe/` can be source material for context synthesis
-
-When modifying integration behavior, consider impacts on these skills.
+- **document-skills:pptx** — Required for html2pptx.js, PptxGenJS, Playwright, thumbnail.py, and LibreOffice. Paths resolved via Glob at build time. Also provides `unpack.py` (via `**/pptx/ooxml/scripts/unpack.py`) and `thumbnail.py` used for PPTX input extraction.
+- **Spec skill** — Used for spec-driven refinement when user chooses the interview path. Invoked as `/spec <filename> <hint>` with presentation-specific angles. The spec skill is never modified.
+- **Viz skill** — Outputs to `.viz/`, presentation copies to `assets/`
