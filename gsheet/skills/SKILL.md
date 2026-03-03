@@ -44,7 +44,7 @@ Requires the `data` skill installed at `~/.claude/skills/data`. Skip this step i
 After downloading, probe each CSV to check if it's messy:
 
 ```bash
-uv run --project ~/.claude/skills/data python ~/.claude/skills/data/probe.py <file.csv>
+uv run --project ~/.claude/skills/data/scripts python ~/.claude/skills/data/scripts/probe.py <file.csv>
 ```
 
 Show the probe summary to the user. If the probe reveals messiness (skip rows, multiple column groups, formatted numbers like `$`, `,`, `%`), ask: **"Want me to clean this into an analysis-ready parquet file?"**
@@ -52,7 +52,7 @@ Show the probe summary to the user. If the probe reveals messiness (skip rows, m
 **If yes:** Use the probe output to write a polars cleaning script, run it via the data skill's uv env:
 
 ```bash
-uv run --project ~/.claude/skills/data python /tmp/clean_sheet.py
+uv run --project ~/.claude/skills/data/scripts python /tmp/clean_sheet.py
 ```
 
 The cleaning script should:
