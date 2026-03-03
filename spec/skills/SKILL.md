@@ -42,7 +42,7 @@ If the session dies after Phase 1, a fresh session can pick up this file and run
 
 ### Phase 2 — Interview
 
-Run the interview prompt you just wrote. Use AskUserQuestion, 1-2 questions per round. The angles in the prompt are suggestions — follow the conversation wherever it leads. Probe deep, skip the obvious, force tradeoffs.
+Run the interview prompt you just wrote. Use AskUserQuestion, 3-4 questions per round. The angles in the prompt are suggestions — follow the conversation wherever it leads. Probe deep, skip the obvious, force tradeoffs.
 
 Stop when coverage feels complete. Trust your judgment.
 
