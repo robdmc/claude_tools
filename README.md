@@ -101,6 +101,27 @@ Use these placeholders in SKILL.md for portable paths:
 | **Copy** | Portable, independent | Won't auto-update |
 | **Symlink** | Auto-updates with repo | Requires repo access |
 
+## Data Toolkit
+
+Four tools that work together for end-to-end data workflows. They pick up where your SQL tools leave off.
+
+| Tool | Core Capability |
+|------|----------------|
+| **gsheet** | Pull Google Sheets data down as local CSV files with interactive tab selection |
+| **data** | Wrangle, clean, profile, and analyze tabular data (polars / pandas / duckdb). Open files interactively with VisiData. |
+| **ddag** | Define reproducible data pipelines — each node stores transform metadata with Makefile-like staleness tracking |
+| **viz** | Render publication-quality matplotlib/seaborn charts from prepared data files |
+
+### How they connect
+
+- **SQL tools → data** — Query results (CSV/Parquet exports) from any database client feed into the data skill for wrangling
+- **gsheet → data** — Downloaded CSVs are probed and cleaned by the data skill
+- **data → ddag** — Ad-hoc transforms get codified into reproducible pipeline nodes
+- **data → viz** — Cleaned data prepared as `.viz/<name>.parquet` for charting
+- **ddag → data / viz** — Pipeline outputs feed back into analysis or visualization
+
+![Data toolkit flow](data_toolkit_flow.png)
+
 ## Contributing
 
 1. Create a new top-level directory for your tool

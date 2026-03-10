@@ -1,0 +1,18 @@
+digraph data_toolkit {
+    rankdir=TB
+    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11]
+    edge [fontname="Helvetica", fontsize=9]
+
+    sql      [label="SQL tools\n(external)", fillcolor="#F0F0F0", style="rounded,filled,dashed"]
+    gsheet   [label="gsheet",  fillcolor="#E8F4FD"]
+    data     [label="data",    fillcolor="#E8F8E8"]
+    ddag     [label="ddag",    fillcolor="#F3E8FF"]
+    viz      [label="viz",     fillcolor="#FFE8E8"]
+
+    sql    -> data     [label="CSV / Parquet"]
+    gsheet -> data     [label="CSV"]
+    data   -> ddag     [label="codify transforms"]
+    data   -> viz      [label="CSV / Parquet"]
+    ddag   -> data     [label="Parquet outputs"]
+    ddag   -> viz      [label="CSV / Parquet"]
+}
