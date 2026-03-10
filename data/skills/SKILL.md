@@ -5,7 +5,8 @@ description: >
   Use when user wants to examine, explore, filter, join, aggregate, reshape,
   clean, summarize, profile, or compute statistics on any data file readable
   by pandas or polars (CSV, Parquet, Excel, JSON, etc.).
-  Also use when user wants to open a data file in a marimo notebook.
+  Also use when user wants to open, look at, view, or "show me" a data file,
+  or open a data file in a marimo notebook.
   Do NOT use for charting, plotting, or visualization — delegate those to viz.
 allowed-tools: >
   Read, Glob, Write,
@@ -80,6 +81,30 @@ df.write_parquet(".viz/prepared_data.parquet")
 ```
 
 Then tell the user to use `/viz`.
+
+## VisiData Viewer
+
+When the user asks to **look at**, **open**, **view**, or **"show me"** a data file, open it in VisiData in a new iTerm2 window.
+
+**Flat files** (CSV, Parquet, JSON, TSV, Excel):
+
+```bash
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/vdopen.py <filepath>
+```
+
+**DuckDB files** (`.ddb`, `.duckdb`) — first list tables, ask the user which one, then open:
+
+```bash
+# Step 1: list available tables
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/vdopen.py --list-tables <dbfile>
+```
+
+Present the table list to the user and ask which to open. Then:
+
+```bash
+# Step 2: open the selected table
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/vdopen.py <dbfile> <schema.table_name>
+```
 
 ## Marimo Notebooks
 
