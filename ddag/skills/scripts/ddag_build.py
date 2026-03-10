@@ -313,11 +313,13 @@ def parse_build_script(script_path):
     return result
 
 
-def load_build_script(script_path, root_dir="."):
+def load_build_script(script_path, root_dir=".", plans=None):
     """Load edited functions from a build script back into their nodes.
 
+    plans: dict mapping node_path to updated transform_plan text (required for changed nodes).
     Returns list of (node_path, changed: bool) tuples.
     """
+    plans = plans or {}
     parsed = parse_build_script(script_path)
     results = []
     for node_path, new_body in parsed.items():
@@ -326,7 +328,13 @@ def load_build_script(script_path, root_dir="."):
         old_body = (meta["transform_function"] or "").strip()
         changed = new_body != old_body
         if changed:
-            ddag_core.set_function(full_path, new_body)
+            plan = plans.get(node_path)
+            if not plan:
+                raise ValueError(
+                    f"transform_plan required for changed node {node_path} — "
+                    f"pass plans={{'{node_path}': '...'}}"
+                )
+            ddag_core.set_function(full_path, new_body, plan)
         results.append((node_path, changed))
     return results
 
@@ -824,6 +832,7 @@ examples:
     parser.add_argument("--output", "-o", help="Output file path (for diagram, default: _ddag_diagram.png)")
     parser.add_argument("--all", action="store_true", help="Include all compute nodes, not just stale (for script)")
     parser.add_argument("-y", "--yes", action="store_true", help="Skip confirmation prompts (for clean)")
+    parser.add_argument("--plan", help="Transform plan text (for load-function)")
     args = parser.parse_args()
 
     if args.command == "status":
@@ -999,33 +1008,21 @@ examples:
         if not args.node:
             print("ERROR: --node is required for load-function command")
             sys.exit(1)
+        if not args.plan:
+            print("ERROR: --plan is required for load-function command (provide updated transform plan)")
+            sys.exit(1)
         node_path = str(Path(args.root) / args.node)
         try:
-            inp = ddag_core.load_function(node_path, args.output)
+            inp = ddag_core.load_function(node_path, args.plan, args.output)
             print(f"Loaded function from {inp} into {args.node}")
         except (ValueError, FileNotFoundError) as e:
             print(f"ERROR: {e}")
             sys.exit(1)
 
     elif args.command == "load-script":
-        script_file = args.file or "_ddag_build.py"
-        if not Path(script_file).exists():
-            print(f"ERROR: {script_file} not found")
-            sys.exit(1)
-        try:
-            results = load_build_script(script_file, args.root)
-            changed = [(n, c) for n, c in results if c]
-            unchanged = [(n, c) for n, c in results if not c]
-            if changed:
-                for node_path, _ in changed:
-                    print(f"  UPDATED: {node_path}")
-            if unchanged:
-                for node_path, _ in unchanged:
-                    print(f"  unchanged: {node_path}")
-            print(f"\n{len(changed)} node(s) updated, {len(unchanged)} unchanged.")
-        except Exception as e:
-            print(f"ERROR: {e}")
-            sys.exit(1)
+        print("ERROR: load-script requires transform plans for changed nodes.")
+        print("Use the Python API: ddag_build.load_build_script(path, root, plans={...})")
+        sys.exit(1)
 
     elif args.command == "clean":
         nodes = scan_nodes(args.root)

@@ -27,9 +27,10 @@ CREATE TABLE IF NOT EXISTS parameters (
 );
 
 CREATE TABLE IF NOT EXISTS transform_function (
-    id            INTEGER NOT NULL DEFAULT 1 CHECK (id = 1) PRIMARY KEY,
-    function_body TEXT,
-    updated_at    TEXT
+    id              INTEGER NOT NULL DEFAULT 1 CHECK (id = 1) PRIMARY KEY,
+    function_body   TEXT,
+    transform_plan  TEXT,
+    updated_at      TEXT
 );
 INSERT OR IGNORE INTO transform_function (id) VALUES (1);
 
@@ -65,8 +66,12 @@ def connect(ddag_path):
 
 
 def _migrate(db):
-    """Add columns introduced after initial schema. Currently a no-op — all columns are in SCHEMA_SQL."""
-    pass
+    """Add columns introduced after initial schema."""
+    # Add transform_plan to existing .ddag files created before this column existed.
+    try:
+        db.execute("SELECT transform_plan FROM transform_function LIMIT 1")
+    except sqlite3.OperationalError:
+        db.execute("ALTER TABLE transform_function ADD COLUMN transform_plan TEXT")
 
 
 def create_source_node(ddag_path, description, output_paths):
@@ -84,11 +89,16 @@ def create_source_node(ddag_path, description, output_paths):
         db.close()
 
 
-def create_compute_node(ddag_path, description, source_paths, output_paths, function_body, params=None):
+def create_compute_node(ddag_path, description, source_paths, output_paths, function_body, transform_plan, params=None):
     """Create a compute node with a transform function.
+
+    transform_plan is required — a plain-English description of the transform logic
+    that has been reviewed and approved by the user before code was written.
 
     Safe for re-creation: preserves existing output/column descriptions and stats.
     """
+    if not transform_plan:
+        raise ValueError("transform_plan is required for compute nodes")
     db = connect(ddag_path)
     try:
         with db:
@@ -104,8 +114,8 @@ def create_compute_node(ddag_path, description, source_paths, output_paths, func
                     (p,),
                 )
             db.execute(
-                "UPDATE transform_function SET function_body = ?, updated_at = ? WHERE id = 1",
-                (function_body, _now_iso()),
+                "UPDATE transform_function SET function_body = ?, transform_plan = ?, updated_at = ? WHERE id = 1",
+                (function_body, transform_plan, _now_iso()),
             )
             if params:
                 for name, info in params.items():
@@ -143,6 +153,7 @@ def read_node(ddag_path):
         "sources": sources,
         "parameters": params,
         "transform_function": tf["function_body"],
+        "transform_plan": tf["transform_plan"],
         "updated_at": tf["updated_at"],
         "outputs": outputs,
         "output_columns": columns,
@@ -150,15 +161,30 @@ def read_node(ddag_path):
     }
 
 
-def set_function(ddag_path, function_body):
-    """Update the transform function."""
+def set_function(ddag_path, function_body, transform_plan):
+    """Update the transform function and its plan together.
+
+    Both are required — the plan must describe what the code does.
+    """
+    if not transform_plan:
+        raise ValueError("transform_plan is required when setting a function")
     db = connect(ddag_path)
     try:
         with db:
             db.execute(
-                "UPDATE transform_function SET function_body = ?, updated_at = ? WHERE id = 1",
-                (function_body, _now_iso()),
+                "UPDATE transform_function SET function_body = ?, transform_plan = ?, updated_at = ? WHERE id = 1",
+                (function_body, transform_plan, _now_iso()),
             )
+    finally:
+        db.close()
+
+
+def get_transform_plan(ddag_path):
+    """Read the transform plan from a node. Returns the plan string or None."""
+    db = connect(ddag_path)
+    try:
+        row = db.execute("SELECT transform_plan FROM transform_function WHERE id = 1").fetchone()
+        return row["transform_plan"]
     finally:
         db.close()
 
@@ -183,13 +209,16 @@ def dump_function(ddag_path, output_path=None):
     return output_path
 
 
-def load_function(ddag_path, input_path=None):
-    """Load a transform function from a .py file back into the node."""
+def load_function(ddag_path, transform_plan, input_path=None):
+    """Load a transform function from a .py file back into the node.
+
+    transform_plan is required — provide the updated plan reflecting the edited code.
+    """
     if input_path is None:
         stem = Path(ddag_path).stem
         input_path = f"_ddag_{stem}.py"
     body = Path(input_path).read_text().rstrip("\n")
-    set_function(ddag_path, body)
+    set_function(ddag_path, body, transform_plan)
     return input_path
 
 

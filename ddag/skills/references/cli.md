@@ -18,8 +18,8 @@ Run `--help` for full details on any command. Most commands have Python equivale
 | `file-context` | Look up a data file across all nodes (JSON) | `--file <path>` (required) |
 | `diagram` | Render Mermaid DAG diagram to PNG or .mmd fallback | `-o <path>` |
 | `dump-function` | Dump transform function to .py for external editing | `--node <path>` (required) |
-| `load-function` | Load edited transform function back into node | `--node <path>` (required) |
-| `load-script` | Parse edited build script, update changed functions | `--file <path>` (required) |
+| `load-function` | Load edited transform function back into node | `--node <path>` (required), `--plan <text>` (required) |
+| `load-script` | *Disabled in CLI* — use Python API with plans dict | |
 | `clean` | Delete all compute node output files (interactive confirmation) | |
 
 ## Examples
@@ -34,7 +34,7 @@ python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .
 # Dump → edit → load → build cycle
 python {SKILL_DIR}/scripts/ddag_build.py dump-function --node path/to/node.ddag --root .
 # ... user edits _ddag_{stem}.py ...
-python {SKILL_DIR}/scripts/ddag_build.py load-function --node path/to/node.ddag --root .
+python {SKILL_DIR}/scripts/ddag_build.py load-function --node path/to/node.ddag --plan "Updated plan describing the new logic" --root .
 python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .
 ```
 

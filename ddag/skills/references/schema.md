@@ -48,6 +48,7 @@ Embedded Python transform function. NULL function_body = source node.
 |--------|------|-------|
 | id | INTEGER | Always 1, PRIMARY KEY |
 | function_body | TEXT | Python function def, or NULL for source nodes |
+| transform_plan | TEXT | Plain-English description of what the transform does, reviewed by user before code was written. Required whenever function_body is set. |
 | updated_at | TEXT | ISO 8601 timestamp |
 
 ### outputs

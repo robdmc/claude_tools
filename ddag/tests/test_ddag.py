@@ -61,6 +61,7 @@ def test_compute_node(tmp):
         source_paths=["visits.csv"],
         output_paths=["clean_visits.parquet"],
         function_body=function_body,
+        transform_plan="Read visits.csv, filter rows where date >= min_date parameter, write to parquet.",
         params={"min_date": {"type": "str", "value": "2024-01-03", "description": "Minimum date filter"}},
     )
 
@@ -69,6 +70,7 @@ def test_compute_node(tmp):
     assert meta["sources"] == ["visits.csv"]
     assert len(meta["outputs"]) == 1
     assert meta["transform_function"] is not None
+    assert meta["transform_plan"] == "Read visits.csv, filter rows where date >= min_date parameter, write to parquet."
     assert meta["updated_at"] is not None
 
     # Test helper dicts
@@ -213,7 +215,8 @@ def test_stale_after_function_update(tmp):
     df = df.with_columns(pl.lit(True).alias('filtered'))
     df.write_parquet(outputs['clean_visits'])
 '''
-    ddag_core.set_function(os.path.join(tmp, "clean_visits.ddag"), new_function)
+    ddag_core.set_function(os.path.join(tmp, "clean_visits.ddag"), new_function,
+                           "Read visits.csv, filter rows where date >= min_date, add 'filtered' boolean column, write to parquet.")
 
     nodes = ddag_build.scan_nodes(tmp)
     edges, _ = ddag_build.build_dag(nodes)
@@ -245,11 +248,13 @@ def test_cycle_detection(tmp):
         os.path.join(tmp, "a.ddag"),
         "Node A", source_paths=["b_out.parquet"], output_paths=["a_out.parquet"],
         function_body="def transform(sources, params, outputs): pass",
+        transform_plan="Pass-through from B output.",
     )
     ddag_core.create_compute_node(
         os.path.join(tmp, "b.ddag"),
         "Node B", source_paths=["a_out.parquet"], output_paths=["b_out.parquet"],
         function_body="def transform(sources, params, outputs): pass",
+        transform_plan="Pass-through from A output.",
     )
 
     nodes = ddag_build.scan_nodes(tmp)
@@ -382,6 +387,7 @@ def test_build_command(tmp):
     df = df.filter(pl.col('date') >= params['min_date'])
     df.write_parquet(outputs['clean_visits'])
 ''',
+        "Read visits.csv, filter rows where date >= min_date parameter, write to parquet.",
     )
 
     built = ddag_build.build_nodes(tmp)
@@ -416,6 +422,7 @@ def test_build_single_node(tmp):
     agg = df.group_by('user_id').agg(pl.len().alias('visit_count'))
     agg.write_parquet(outputs['agg_visits'])
 ''',
+        transform_plan="Read clean_visits.parquet, group by user_id, count visits per user, write to parquet.",
     )
 
     built = ddag_build.build_nodes(tmp, node_filter="agg_visits.ddag")
@@ -497,13 +504,14 @@ def test_dump_and_load_function(tmp):
         f.write(modified)
 
     # Load back
-    ddag_core.load_function(node_path)
-    updated = ddag_core.read_node(node_path)["transform_function"]
-    assert "cutoff_date" in updated
-    assert "min_date" not in updated
+    ddag_core.load_function(node_path, "Read visits.csv, filter rows where date >= cutoff_date parameter, write to parquet.")
+    updated = ddag_core.read_node(node_path)
+    assert "cutoff_date" in updated["transform_function"]
+    assert "min_date" not in updated["transform_function"]
+    assert "cutoff_date" in updated["transform_plan"]
 
     # Restore original and clean up
-    ddag_core.set_function(node_path, original)
+    ddag_core.set_function(node_path, original, "Read visits.csv, filter rows where date >= min_date parameter, write to parquet.")
     os.remove(out_file)
 
     # Dump to custom path
@@ -552,7 +560,8 @@ def test_load_build_script(tmp):
     with open(script_path, "w") as f:
         f.write(modified)
 
-    results = ddag_build.load_build_script(script_path, tmp)
+    plans = {"clean_visits.ddag": "Read visits.csv, filter rows where date >= start_date parameter, write to parquet."}
+    results = ddag_build.load_build_script(script_path, tmp, plans=plans)
     changed_nodes = [n for n, c in results if c]
     assert "clean_visits.ddag" in changed_nodes
 
@@ -560,10 +569,12 @@ def test_load_build_script(tmp):
     meta = ddag_core.read_node(os.path.join(tmp, "clean_visits.ddag"))
     assert "start_date" in meta["transform_function"]
     assert "min_date" not in meta["transform_function"]
+    assert "start_date" in meta["transform_plan"]
 
     # Restore original
     original_body = parsed["clean_visits.ddag"]
-    ddag_core.set_function(os.path.join(tmp, "clean_visits.ddag"), original_body)
+    ddag_core.set_function(os.path.join(tmp, "clean_visits.ddag"), original_body,
+                           "Read visits.csv, filter rows where date >= min_date parameter, write to parquet.")
 
     os.remove(script_path)
     print("PASS")
@@ -673,6 +684,7 @@ def test_force_stale_transitive(tmp):
     agg = df.group_by('user_id').agg(pl.len().alias('visit_count'))
     agg.write_parquet(outputs['agg_visits'])
 ''',
+        transform_plan="Read clean_visits.parquet, group by user_id, count visits per user, write to parquet.",
     )
     ddag_build.build_nodes(tmp, node_filter="agg_visits.ddag")
 
@@ -740,6 +752,7 @@ def test_sourceless_compute_same_day(tmp):
     df = pl.DataFrame({"id": [1, 2, 3], "val": ["a", "b", "c"]})
     df.write_parquet(outputs['db_data'])
 ''',
+        transform_plan="Generate a static test dataframe with id and val columns, write to parquet.",
     )
 
     # Build it
@@ -780,6 +793,7 @@ def test_sourceless_compute_stale_yesterday(tmp):
     df = pl.DataFrame({"id": [1, 2, 3], "val": ["a", "b", "c"]})
     df.write_parquet(outputs['db_data2'])
 ''',
+        transform_plan="Generate a static test dataframe with id and val columns, write to parquet.",
     )
     ddag_build.build_nodes(tmp, node_filter="db_fetch2.ddag")
 
@@ -797,6 +811,48 @@ def test_sourceless_compute_stale_yesterday(tmp):
     # Clean up
     os.remove(ddag_path)
     os.remove(os.path.join(tmp, "db_data2.parquet"))
+    print("PASS")
+
+
+def test_transform_plan_required(tmp):
+    """Test 29: transform_plan is required for compute nodes and set_function."""
+    print("Test 29: Transform plan required...", end=" ")
+
+    # create_compute_node without plan should fail
+    try:
+        ddag_core.create_compute_node(
+            os.path.join(tmp, "bad.ddag"),
+            "Bad node", source_paths=[], output_paths=["bad.parquet"],
+            function_body="def transform(sources, params, outputs): pass",
+            transform_plan=None,
+        )
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "transform_plan" in str(e)
+
+    # Empty string plan should also fail
+    try:
+        ddag_core.create_compute_node(
+            os.path.join(tmp, "bad.ddag"),
+            "Bad node", source_paths=[], output_paths=["bad.parquet"],
+            function_body="def transform(sources, params, outputs): pass",
+            transform_plan="",
+        )
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "transform_plan" in str(e)
+
+    # set_function without plan should fail
+    try:
+        ddag_core.set_function(
+            os.path.join(tmp, "clean_visits.ddag"),
+            "def transform(sources, params, outputs): pass",
+            None,
+        )
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "transform_plan" in str(e)
+
     print("PASS")
 
 
@@ -844,6 +900,7 @@ def main():
         test_sourceless_compute_same_day(tmp)
         test_sourceless_compute_stale_yesterday(tmp)
         test_force_stale_default(tmp)
+        test_transform_plan_required(tmp)
         print("\nAll tests passed!")
     finally:
         shutil.rmtree(tmp)

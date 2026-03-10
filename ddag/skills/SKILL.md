@@ -37,7 +37,7 @@ import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); import ddag_core; import 
 # --- ddag_core: Node CRUD ---
 
 # Creation
-ddag_core.create_compute_node(ddag_path, description, source_paths, output_paths, function_body, params=None)
+ddag_core.create_compute_node(ddag_path, description, source_paths, output_paths, function_body, transform_plan, params=None)
 ddag_core.create_source_node(ddag_path, description, output_paths)
 
 # Inspection
@@ -45,10 +45,11 @@ ddag_core.read_node(ddag_path)                        # → dict with all node m
 ddag_core.get_sources_dict(ddag_path)                  # → {stem: path}
 ddag_core.get_outputs_dict(ddag_path)                  # → {stem: path}
 ddag_core.get_params_dict(ddag_path)                   # → {name: typed_value}
+ddag_core.get_transform_plan(ddag_path)                  # → str or None
 ddag_core.is_active(ddag_path)                         # → bool
 
 # Modification
-ddag_core.set_function(ddag_path, function_body)
+ddag_core.set_function(ddag_path, function_body, transform_plan)
 ddag_core.update_output_stats(ddag_path, output_path, row_count, col_count)
 ddag_core.set_output_description(ddag_path, output_path, description)
 ddag_core.set_column_descriptions(ddag_path, output_path, {col_name: description})
@@ -195,7 +196,8 @@ The generated `_ddag_build.py` is not a one-way export. The user can edit indivi
 
 1. `script --all` → generate `_ddag_build.py`
 2. User edits functions in `_ddag_build.py`
-3. `load-script --file _ddag_build.py` → updates changed `.ddag` nodes
+3. Review the changes, revise the transform plan for each changed node
+4. `ddag_build.load_build_script('_ddag_build.py', '.', plans={node: updated_plan, ...})` → updates changed `.ddag` nodes with revised plans
 
 ### `/ddag clean`
 
@@ -242,6 +244,8 @@ Propose a descriptive name for the .ddag file based on what the node does. User 
 
 ### Checkpoint 1b — Transform Plan (compute nodes only)
 
+Every compute node stores a `transform_plan` — a plain-English description of the transform logic that must be approved by the user before code is written. The plan is **required** by the API: `create_compute_node()` and `set_function()` both require a `transform_plan` argument. This ensures the plan and code are always in sync.
+
 Before writing any transform code, **inspect the schemas of all source files** by reading them with polars/pandas and printing `.schema` (for parquet) or `.dtypes`. Present the schemas alongside the plan so the transform handles the actual column types (e.g., `Datetime` vs `Date`, `Int64` vs `Float64`). This avoids type-mismatch errors at build time.
 
 Then present a plain-English description of the approach. This lets the user audit and modify the logic before code is generated.
@@ -265,7 +269,9 @@ Then present a plain-English description of the approach. This lets the user aud
 - Request changes → revise the plan and re-present
 - Reject the approach entirely → discuss alternatives
 
-**Skip this checkpoint** only for trivial transforms (single group-by, simple filter, column rename) where the logic is obvious from the user's request.
+The approved plan text becomes the `transform_plan` argument when creating the node.
+
+**Skip this checkpoint** only for trivial transforms (single group-by, simple filter, column rename) where the logic is obvious from the user's request. Even then, a brief plan is still required (e.g., "Group visits by user_id, count rows per group").
 
 ### Create & Build
 
@@ -307,7 +313,7 @@ Run `audit` (`python $CLI audit $ROOT`) to check description health across the e
 
 ## Modifying Existing Nodes
 
-- **Change the transform function only**: `ddag_core.set_function()` — faster than re-creating the node.
+- **Change the transform function only**: `ddag_core.set_function(path, new_body, updated_plan)` — faster than re-creating the node. Always update the plan to match the new code.
 - **Add/remove sources or outputs**: Re-call `create_compute_node()` with the full updated lists. **Important:** it uses `ON CONFLICT DO NOTHING`, so it will **not** remove old entries — use `remove_source()` / `remove_output()` explicitly.
 - **Change parameters**: Re-call `create_compute_node()` with the full updated params dict.
 
@@ -327,12 +333,13 @@ Clone a node to experiment with alternatives while preserving the original. Use 
 
 The most common action: tweak a transform and see results.
 
-**In-conversation editing** (two-step loop):
+**In-conversation editing** (three-step loop):
 
-1. `ddag_core.set_function(path, new_body)`
-2. `python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .`
+1. Read the current plan: `ddag_core.get_transform_plan(path)`
+2. Update the function and plan together: `ddag_core.set_function(path, new_body, updated_plan)` — tweak the existing plan text to reflect the code changes
+3. `python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .`
 
-**External editor** (dump → edit → load → build): See `references/cli.md` for the dump/load commands.
+**External editor** (dump → edit → load → build): After the user edits the dumped `.py` file, read the new code, revise the existing plan to match, then call `ddag_core.load_function(path, updated_plan)`. See `references/cli.md` for the dump/load commands.
 
 The `build` command handles staleness, execution, stat updates, and prints the first 5 rows of each output. Show these rows to the user.
 

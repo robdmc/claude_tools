@@ -26,20 +26,24 @@ ddag_core.create_source_node('data/visits.ddag',
     description='Raw visit logs from web analytics',
     output_paths=['data/visits.csv'])
 
-# Create a compute node
+# Create a compute node — transform_plan is required
 ddag_core.create_compute_node('pipeline/clean.ddag',
     description='Filter visits to recent dates',
     source_paths=['data/visits.csv'],
     output_paths=['pipeline/clean_visits.parquet'],
     function_body=function_code,
+    transform_plan='Read visits.csv, filter rows where date >= min_date, write to parquet.',
     params={'min_date': {'type': 'str', 'value': '2024-01-01', 'description': 'Cutoff date'}})
 
 # Read node metadata — returns dict with: description, sources, parameters,
-# transform_function, updated_at, outputs, output_columns, is_source_node
+# transform_function, transform_plan, updated_at, outputs, output_columns, is_source_node
 meta = ddag_core.read_node('pipeline/clean.ddag')
 
-# Update transform function only (faster than re-calling create_compute_node)
-ddag_core.set_function('pipeline/clean.ddag', new_function_code)
+# Read just the transform plan
+plan = ddag_core.get_transform_plan('pipeline/clean.ddag')
+
+# Update transform function — transform_plan is always required alongside
+ddag_core.set_function('pipeline/clean.ddag', new_function_code, updated_plan)
 
 # After build: update stats and descriptions
 ddag_core.update_output_stats('pipeline/clean.ddag', 'pipeline/clean_visits.parquet', row_count=1000, col_count=5)
@@ -61,9 +65,9 @@ ddag_core.remove_output('pipeline/clean.ddag', 'pipeline/old_output.parquet')
 out_file = ddag_core.dump_function('pipeline/clean.ddag')              # → _ddag_clean.py
 out_file = ddag_core.dump_function('pipeline/clean.ddag', 'my_edit.py')  # custom path
 
-# Load edited function back into node
-ddag_core.load_function('pipeline/clean.ddag')              # reads _ddag_clean.py
-ddag_core.load_function('pipeline/clean.ddag', 'my_edit.py')  # custom path
+# Load edited function back into node — transform_plan required
+ddag_core.load_function('pipeline/clean.ddag', updated_plan)              # reads _ddag_clean.py
+ddag_core.load_function('pipeline/clean.ddag', updated_plan, 'my_edit.py')  # custom path
 
 # Get dicts suitable for passing to transform()
 sources = ddag_core.get_sources_dict('pipeline/clean.ddag')   # {stem: path}
@@ -113,8 +117,8 @@ components = ddag_build.find_connected_components(edges)
 mermaid_src = ddag_build.generate_mermaid(nodes, edges)
 png_path = ddag_build.render_diagram('.', output_path='pipeline.png')
 
-# Parse edited build script back into nodes
-results = ddag_build.load_build_script('_ddag_build.py', '.')  # [(node_path, changed)]
+# Parse edited build script back into nodes — plans required for changed nodes
+results = ddag_build.load_build_script('_ddag_build.py', '.', plans={'clean.ddag': updated_plan})  # [(node_path, changed)]
 
 # File context (full DAG context for a data file)
 ctx = ddag_build.file_context('data/visits.csv', '.')
