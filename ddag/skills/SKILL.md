@@ -138,20 +138,23 @@ For the full SQLite schema, see `references/schema.md`.
 ### Bare `/ddag` (no arguments)
 
 1. Run `summary` (`python $CLI summary $ROOT`)
-2. Branch on the result:
+2. Scan for inactive nodes: `summary` only returns active nodes. Also glob for all `.ddag` files and call `ddag_core.is_active(path)` on each. Any inactive nodes should appear in the node table with status `INACTIVE` (appended after the active nodes).
+3. Branch on the result:
 
 **No nodes found** — Tell the user there's no pipeline yet. Ask how to start:
 - Point at a data file to wrap as a source node (`/ddag data.csv`)
 - Point at a script to convert into a node (`/ddag script.py`)
 - Describe a transform to create from scratch
 
-**One pipeline** (single connected DAG) — Present a node table in topological order:
+**One pipeline** (single connected DAG) — Before building the table, call `ddag_core.get_outputs_dict(path)` for each node to get the output file extensions. The `summary` command does not include output paths. Present a node table in topological order with the output file type (e.g., `.parquet`, `.csv`, `.png`) so the user can see at a glance which nodes produce data vs artifacts:
 
 ```
-| Node | Type | Status | Description |
-|------|------|--------|-------------|
-| raw_sales.ddag | source | ok | Raw sales CSV |
-| clean_sales.ddag | compute | STALE | Clean and filter sales |
+| Node | Type | Output | Status | Description |
+|------|------|--------|--------|-------------|
+| raw_sales.ddag | source | .csv | ok | Raw sales CSV |
+| clean_sales.ddag | compute | .parquet | STALE | Clean and filter sales |
+| sales_chart.ddag | compute | .png | ok | Monthly sales trend chart |
+| old_clean.ddag | compute | .parquet | INACTIVE | (previous version of clean_sales) |
 ```
 
 Then ask what the user wants to do: inspect a node, rebuild stale nodes, add a new step, view the diagram, etc.

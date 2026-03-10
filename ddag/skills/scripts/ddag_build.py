@@ -373,8 +373,7 @@ def update_output_stats_after_build(node_path, root_dir="."):
                 except ImportError:
                     pass
 
-        if row_count is not None:
-            ddag_core.update_output_stats(full_path, out["path"], row_count, col_count)
+        ddag_core.update_output_stats(full_path, out["path"], row_count, col_count)
 
 
 def build_nodes(root_dir=".", node_filter=None, sample_rows=5):
