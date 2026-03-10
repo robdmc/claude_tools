@@ -1,29 +1,29 @@
-# ddag
+# ddag — Dynamic DAG
 
-Data pipeline DAG management where each node is a `.ddag` SQLite file storing transformation metadata.
+An LLM-driven alternative to notebooks for iterative data analysis.
 
-## What It Does
+## The Idea
 
-- Create and manage data pipeline nodes as `.ddag` files (SQLite databases)
-- Define transform functions between data files with a standard `def transform(sources, params, outputs)` signature
-- Automatically discover DAG edges by matching source paths to output paths across nodes
-- Detect staleness (makefile-like) and rebuild only what's needed
-- Document data lineage with output and column-level descriptions
-- Branch nodes for exploratory workflows while preserving the original
-- Generate standalone build scripts or Mermaid DAG diagrams
+Transforming raw data into analysis typically involves piecemeal iteration — experimenting with different transformations, filters, and aggregations to discover what's useful. Notebooks are the traditional tool for this, but they mix code, state, and output in ways that make reproducibility and iteration difficult.
 
-## Node Types
+**ddag** takes a different approach: each transformation step is a standalone `.ddag` node (a SQLite file storing metadata and a Python transform function), and the DAG connecting them is discovered automatically. You evolve the pipeline dynamically through natural language prompts to an LLM agent — adding nodes, rewiring dependencies, branching for experiments — without manually managing pipeline code or execution order.
 
-- **Source nodes**: Document raw files that exist outside the pipeline (no transform function)
-- **Compute nodes**: Contain a Python transform function that reads inputs and writes outputs
+When combined with the [viz](/viz) tool in this project, ddag provides a fully prompt-driven workflow for going from raw data to polished visualizations.
+
+## How It Works
+
+- **Source nodes** document raw data files that exist outside the pipeline
+- **Compute nodes** contain a Python transform function (`def transform(sources, params, outputs)`) that reads inputs and writes outputs
+- DAG edges are discovered automatically by matching source paths to output paths across nodes
+- Staleness detection is makefile-like: only rebuild what's changed
+- Nodes can be branched for exploratory workflows while preserving the original
 
 ## Key Concepts
 
 - Each `.ddag` file is a self-contained SQLite database with 6 tables
 - All file paths are relative to the project root
-- DAG edges are discovered automatically by matching source paths to output paths
-- Staleness is makefile-like: compare timestamps to determine what needs rebuilding
-- Transform functions use `def transform(sources, params, outputs)` with imports inside the function body
+- Transform functions have imports inside the function body
+- Build scripts and Mermaid diagrams can be generated from the DAG
 
 ## Dependencies
 
