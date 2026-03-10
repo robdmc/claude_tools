@@ -28,7 +28,7 @@ The generated `_ddag_build.py` is not a one-way export. The user can edit indivi
 1. `script --all` → generate `_ddag_build.py`
 2. User edits functions in `_ddag_build.py`
 3. Inspect what changed: `ddag_build.parse_build_script('_ddag_build.py')` → `{node_path: function_body}` — compare against current node functions to identify edits
-4. Review the changes, revise the transform plan for each changed node
+4. Review the changes, revise the transform plan for each changed node. **Use the same structured bullet format as Checkpoint 1b** (Inputs/Steps/Edge cases/Output for data nodes; Inputs/Chart design/Styling/Output for viz nodes). If the existing plan is prose, reformat it into the structured format while incorporating the changes.
 5. `ddag_build.load_build_script('_ddag_build.py', '.', plans={node: updated_plan, ...})` → updates changed `.ddag` nodes with revised plans
 
 ## Script Conversion

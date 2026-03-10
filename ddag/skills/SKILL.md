@@ -220,6 +220,18 @@ When dropped into a project with existing .ddag files:
 2. Use `ddag_core.read_node(path)` on key nodes to inspect metadata
 3. Run `stale` (`python $CLI stale $ROOT`) to see what needs rebuilding
 
+## Explaining a Node's Logic
+
+When the user asks how a node works, what its logic is, what it does, or anything semantically similar — respond with three parts in this order:
+
+1. **Purpose** (1-2 sentences): Why this node exists — what job it does for the pipeline. Focus on the *why*, not the plumbing. Don't just say what feeds it or consumes it (the user can see that from the table); instead explain the analytical role it plays. Use `read_node()` metadata (description, sources, outputs, downstream consumers) to infer purpose.
+
+2. **Transform plan (verbatim)**: Present the node's `transform_plan` exactly as stored, word-for-word. Format it for readability (line breaks, bullet points) but **do not change, omit, or rephrase any content**. Do NOT use blockquote (`>`) formatting — it renders dimmed in terminals. Use regular markdown instead. This is the audited source of truth. Use `ddag_core.get_transform_plan(path)` to retrieve it.
+
+3. **In plain English** (2-4 short sentences): A casual rephrasing of the plan in simpler language. Keep sentences short and direct — no run-ons. This is clearly labeled as a summary and is secondary to the verbatim plan above.
+
+**Why verbatim matters:** The transform plan is the user-approved, audited specification. Paraphrasing risks losing precision or introducing inaccuracies. The exact wording is what was reviewed and approved.
+
 ## Creation Workflow
 
 Three mandatory checkpoints. Everything else is autonomous.
@@ -255,7 +267,7 @@ Then present a plain-English description of the approach. This lets the user aud
 - Request changes → revise the plan and re-present
 - Reject the approach entirely → discuss alternatives
 
-The approved plan text becomes the `transform_plan` argument when creating the node.
+The approved plan text becomes the `transform_plan` argument when creating the node. **Store the plan in the exact structured format that was presented to the user** — with the labeled bullet sections (Inputs, Steps, Edge cases, Output for data nodes; Inputs, Chart design, Styling, Output for visualization nodes). The stored plan and the presented plan must be identical.
 
 **Skip this checkpoint** only for trivial transforms (single group-by, simple filter, column rename) where the logic is obvious from the user's request. Even then, a brief plan is still required (e.g., "Group visits by user_id, count rows per group").
 
@@ -299,7 +311,7 @@ Check consistency across the entire DAG — verifying that each node's transform
 
 ## Modifying Existing Nodes
 
-- **Change the transform function only**: `ddag_core.set_function(path, new_body, updated_plan)` — faster than re-creating the node. Always update the plan to match the new code.
+- **Change the transform function only**: `ddag_core.set_function(path, new_body, updated_plan)` — faster than re-creating the node. Always update the plan to match the new code, using the structured bullet format from Checkpoint 1b.
 - **Add/remove sources or outputs**: Re-call `create_compute_node()` with the full updated lists. **Important:** it uses `ON CONFLICT DO NOTHING`, so it will **not** remove old entries — use `remove_source()` / `remove_output()` explicitly.
 - **Change parameters**: Re-call `create_compute_node()` with the full updated params dict.
 
@@ -322,10 +334,10 @@ The most common action: tweak a transform and see results.
 **In-conversation editing** (three-step loop):
 
 1. Read the current plan: `ddag_core.get_transform_plan(path)`
-2. Update the function and plan together: `ddag_core.set_function(path, new_body, updated_plan)` — tweak the existing plan text to reflect the code changes
+2. Update the function and plan together: `ddag_core.set_function(path, new_body, updated_plan)` — revise the existing plan to reflect the code changes. **The updated plan must use the same structured bullet format as Checkpoint 1b** (Inputs/Steps/Edge cases/Output for data nodes; Inputs/Chart design/Styling/Output for viz nodes). If the existing plan is prose, reformat it into the structured format while incorporating the changes.
 3. `python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .`
 
-**External editor** (dump → edit → load → build): After the user edits the dumped `.py` file, read the new code, revise the existing plan to match, then call `ddag_core.load_function(path, updated_plan)`. See `references/cli.md` for the dump/load commands.
+**External editor** (dump → edit → load → build): After the user edits the dumped `.py` file, read the new code, revise the existing plan to match, then call `ddag_core.load_function(path, updated_plan)`. **The revised plan must use the same structured bullet format as Checkpoint 1b.** See `references/cli.md` for the dump/load commands.
 
 The `build` command handles staleness, execution, stat updates, and prints the first 5 rows of each output. Show these rows to the user.
 
