@@ -21,10 +21,9 @@ ddag/
 ├── skills/
 │   ├── SKILL.md           # Skill definition for Claude
 │   ├── references/
-│   │   ├── api.md         # Python API reference with examples
 │   │   ├── cli.md         # CLI command reference
 │   │   ├── schema.md      # SQLite schema (6 tables)
-│   │   └── workflows.md   # Advanced workflows (branching, script conversion, audit)
+│   │   └── workflows.md   # Advanced workflows (build script, branching, script conversion, audit)
 │   └── scripts/
 │       ├── ddag_core.py   # Node CRUD operations
 │       └── ddag_build.py  # DAG-wide operations and CLI entrypoint

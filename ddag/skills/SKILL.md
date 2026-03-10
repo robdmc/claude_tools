@@ -25,7 +25,7 @@ description: >
 **When to consult reference files:**
 - Branching, cloning, or deactivating nodes → `references/workflows.md` § Branching
 - Converting a Python script to a node → `references/workflows.md` § Script Conversion
-- Need a function not listed below, or need exact parameter details/examples → `references/api.md`
+- Build-script generation, edit-and-sync-back workflow → `references/workflows.md` § Build Script Workflow
 - Need CLI flags beyond what's in the Quick Reference below → `references/cli.md`
 - SQLite table schema and staleness rules → `references/schema.md`
 
@@ -162,29 +162,9 @@ For the full SQLite schema, see `references/schema.md`.
 - Point at a script to convert into a node (`/ddag script.py`)
 - Describe a transform to create from scratch
 
-**One pipeline** (single connected DAG) — Before building the table, call `ddag_core.get_outputs_dict(path)` for each node to get the output file extensions. The `summary` command does not include output paths. Present a node table in topological order with the output file type (e.g., `.parquet`, `.csv`, `.png`) so the user can see at a glance which nodes produce data vs artifacts:
+**One pipeline** (single connected DAG) — Call `ddag_core.get_outputs_dict(path)` for each node to get output file extensions (not included in `summary`). Present a node table in topological order with columns: Node, Type (source/compute), Output extension, Status (ok/STALE/INACTIVE), Description. Include inactive nodes at the bottom. Ask what the user wants to do next.
 
-```
-| Node | Type | Output | Status | Description |
-|------|------|--------|--------|-------------|
-| raw_sales.ddag | source | .csv | ok | Raw sales CSV |
-| clean_sales.ddag | compute | .parquet | STALE | Clean and filter sales |
-| sales_chart.ddag | compute | .png | ok | Monthly sales trend chart |
-| old_clean.ddag | compute | .parquet | INACTIVE | (previous version of clean_sales) |
-```
-
-Then ask what the user wants to do: inspect a node, rebuild stale nodes, add a new step, view the diagram, etc.
-
-**Multiple pipelines** (disconnected subgraphs) — Present a pipeline summary table, then the node table for each:
-
-```
-| # | Sources | Compute | Stale |
-|---|---------|---------|-------|
-| 1 | 1 | 1 | 1 |
-| 2 | 1 | 2 | 0 |
-```
-
-Then show a node table (same format as above) per pipeline. Ask which pipeline to work with.
+**Multiple pipelines** (disconnected subgraphs) — Show a pipeline summary (sources, compute, stale counts per subgraph), then a node table per pipeline. Ask which pipeline to work with.
 
 **Cycle detected** — Report the cycle and ask the user to fix it before proceeding.
 
@@ -194,26 +174,9 @@ Run `diagram` (`python $CLI diagram $ROOT -o diagram.png`). Display the resultin
 
 ### "Build the pipeline file" / "Build the execution script"
 
-The `.ddag` abstraction is for **incremental tinkering** — building and refining pipeline steps interactively. Once tinkering is done, the user wants a **single standalone Python file** they can hand off for production use. This is the "compile" step: assembling all compute nodes into one executable script.
+Compile all compute nodes into a single standalone Python file for production use. See `references/workflows.md` § Build Script Workflow for the full procedure including the edit-and-sync-back round-trip.
 
 Trigger on: "build the pipeline file", "build the pipeline", "compile the pipeline", "build the execution script", "assemble the pipeline", or any semantically similar request.
-
-1. If multiple disconnected DAGs exist and it's ambiguous which one the user means, **ask**.
-2. Run: `python $CLI script --all $ROOT`
-3. Save the output to `_ddag_build.py` in the project root.
-4. Show the user what was generated (node count, file path).
-
-This script can be executed standalone with `python _ddag_build.py` to rebuild all pipeline outputs from scratch.
-
-### Edit-and-sync-back workflow
-
-The generated `_ddag_build.py` is not a one-way export. The user can edit individual transform functions directly in this file, then sync changes back into the `.ddag` nodes. The full round-trip:
-
-1. `script --all` → generate `_ddag_build.py`
-2. User edits functions in `_ddag_build.py`
-3. Inspect what changed: `ddag_build.parse_build_script('_ddag_build.py')` → `{node_path: function_body}` — compare against current node functions to identify edits
-4. Review the changes, revise the transform plan for each changed node
-5. `ddag_build.load_build_script('_ddag_build.py', '.', plans={node: updated_plan, ...})` → updates changed `.ddag` nodes with revised plans
 
 ### `/ddag clean`
 
@@ -420,7 +383,7 @@ This finds stale nodes, executes transforms, updates output stats, and prints sa
 2. Save as `_ddag_build.py` (ephemeral, gitignored) and execute
 3. Update output stats with `ddag_build.update_output_stats_after_build()`
 
-**Incorporating edits from a build script:** If the user edited `_ddag_build.py`, use the edit-and-sync-back workflow (see above) to parse changes and update nodes via the Python API. This is the one exception to the "never execute a transform to learn about the DAG" rule.
+**Incorporating edits from a build script:** If the user edited `_ddag_build.py`, use the edit-and-sync-back workflow (see `references/workflows.md` § Build Script Workflow) to parse changes and update nodes via the Python API. This is the one exception to the "never execute a transform to learn about the DAG" rule.
 
 After building, proceed to metadata review (Checkpoint 2) for any nodes with empty descriptions.
 

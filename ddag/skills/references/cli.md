@@ -2,7 +2,7 @@
 
 All commands: `python {SKILL_DIR}/scripts/ddag_build.py <command> --root .`
 
-Run `--help` for full details on any command. Most commands have Python equivalents in `ddag_build` (see `references/api.md`) — prefer the Python API when you need structured return values.
+Run `--help` for full details on any command. Most commands have Python equivalents in `ddag_build` (see the Quick Reference in SKILL.md) — prefer the Python API when you need structured return values.
 
 ## Commands
 

@@ -6,6 +6,29 @@
 - [Branching (Exploratory Workflows)](#branching-exploratory-workflows)
 - [DAG-wide Audit](#dag-wide-audit)
 
+## Build Script Workflow
+
+The `.ddag` abstraction is for **incremental tinkering**. Once tinkering is done, the user wants a **single standalone Python file** for production use — the "compile" step.
+
+### Generate the build script
+
+1. If multiple disconnected DAGs exist and it's ambiguous which one the user means, **ask**.
+2. Run: `python $CLI script --all $ROOT`
+3. Save the output to `_ddag_build.py` in the project root.
+4. Show the user what was generated (node count, file path).
+
+This script can be executed standalone with `python _ddag_build.py` to rebuild all pipeline outputs from scratch.
+
+### Edit-and-sync-back
+
+The generated `_ddag_build.py` is not a one-way export. The user can edit individual transform functions directly in this file, then sync changes back into the `.ddag` nodes. The full round-trip:
+
+1. `script --all` → generate `_ddag_build.py`
+2. User edits functions in `_ddag_build.py`
+3. Inspect what changed: `ddag_build.parse_build_script('_ddag_build.py')` → `{node_path: function_body}` — compare against current node functions to identify edits
+4. Review the changes, revise the transform plan for each changed node
+5. `ddag_build.load_build_script('_ddag_build.py', '.', plans={node: updated_plan, ...})` → updates changed `.ddag` nodes with revised plans
+
 ## Script Conversion
 
 Convert a Python script into a ddag compute node (`/ddag script.py`):
