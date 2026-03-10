@@ -645,6 +645,7 @@ def audit_descriptions(root_dir="."):
     review_packets = []
 
     for node_path, meta in nodes.items():
+        node_drift = []
         for out in meta["outputs"]:
             opath = out["path"]
             described_cols = meta.get("output_columns", {}).get(opath, [])
@@ -654,13 +655,17 @@ def audit_descriptions(root_dir="."):
                 added = actual_cols - described_names
                 removed = described_names - actual_cols
                 if added or removed:
-                    drift.append({
+                    entry = {
                         "node": node_path, "output": opath,
                         "added": sorted(added), "removed": sorted(removed),
-                    })
+                    }
+                    drift.append(entry)
+                    node_drift.append(entry)
 
         if not meta["is_source_node"]:
-            review_packets.append(_build_review_packet(node_path, meta, nodes, edges))
+            packet = _build_review_packet(node_path, meta, nodes, edges)
+            packet["drift"] = node_drift
+            review_packets.append(packet)
 
     return {"drift": drift, "review_packets": review_packets}
 
@@ -699,6 +704,8 @@ def _build_review_packet(node_path, meta, nodes, edges):
         "description": meta.get("description"),
         "inputs": inputs,
         "transform": meta.get("transform_function"),
+        "transform_plan": meta.get("transform_plan"),
+        "parameters": meta.get("parameters", []),
         "outputs": outputs,
     }
 

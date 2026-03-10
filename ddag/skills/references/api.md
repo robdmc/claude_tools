@@ -139,8 +139,8 @@ results = ddag_build.load_build_script('_ddag_build.py', '.', plans={'clean.ddag
 #   lineage_down ([node_paths]), stale (bool|None)}
 ctx = ddag_build.file_context('data/visits.csv', '.')
 
-# Audit — returns structured drift + review packets for LLM consistency review
+# Audit — returns structured drift + review packets for agent-based consistency review
 result = ddag_build.audit_descriptions('.')
 # result["drift"]          — [{node, output, added, removed}]
-# result["review_packets"] — [{node, description, inputs, transform, outputs}]
+# result["review_packets"] — [{node, description, inputs, transform, transform_plan, parameters, outputs, drift}]
 ```

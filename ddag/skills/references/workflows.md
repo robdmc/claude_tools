@@ -55,21 +55,33 @@ The `status` command shows inactive nodes labeled `[INACTIVE]`.
 
 ## DAG-wide Audit
 
-Run `audit` (`python {SKILL_DIR}/scripts/ddag_build.py audit --root .`) to check description health across the entire DAG. Both phases below are mandatory — deterministic checks alone miss stale or inaccurate descriptions.
+Run `audit` to check consistency across the entire DAG — verifying that each node's transform plan, code, and metadata tell a consistent story.
 
-### Phase 1 — Deterministic checks
+```python
+result = ddag_build.audit_descriptions(root_dir)
+```
 
-The command reports missing descriptions and schema drift (new/removed columns since last description update). Fix any drift by:
-- Adding descriptions for new columns via `ddag_core.set_column_descriptions()`
-- Removing stale column descriptions for columns that no longer exist
+### Procedure
 
-### Phase 2 — Semantic review
+1. **Get review packets**: Call `ddag_build.audit_descriptions(root_dir)`. Each review packet is a self-contained bundle for one compute node: input descriptions/columns (from upstream), transform code, transform plan, parameters, output descriptions/columns, and schema drift.
 
-The command emits a **review packet** per compute node containing: input descriptions (from upstream producers), the node's transform code, and the node's output descriptions. For each packet, verify:
+2. **Spawn auditor agents in parallel**: For each review packet, spawn a `node-auditor` agent (`{AGENTS_DIR}/node-auditor.md`) with the packet as its prompt. Each agent runs in its own context window and checks:
+   - Transform plan vs code — does the code implement what the plan describes?
+   - Input consistency — does the code use all declared sources and parameters?
+   - Output consistency — do output/column descriptions match what the code produces?
+   - Schema drift — are there columns added/removed from actual files since descriptions were written?
+   - Cross-cutting — is the node description accurate? Are pass-through columns consistent with upstream?
 
-- Does the node description accurately reflect what the transform does?
-- Does the output file description match the actual content produced?
-- Are column descriptions accurate given what the code does to them? (e.g., if the code does `group_by('user_id').count()`, the output `user_id` is now "Group key" not "Unique user identifier")
-- Are pass-through columns described consistently with their upstream source?
+3. **Collect results**: Each agent returns either `CONSISTENT` (one line) or `INCONSISTENT` with a list of specific issues.
 
-For large DAGs, review packets in parallel using subagents — one per node or batch of nodes. Propose corrections via `ddag_core.set_output_description()` and `ddag_core.set_column_descriptions()`, presenting changes to the user before applying.
+4. **Surface inconsistencies**: Present any `INCONSISTENT` results to the user. For each inconsistency, the user decides whether to fix the code (via `set_function`) or the metadata (via `set_output_description`, `set_column_descriptions`, etc.).
+
+### Example
+
+```python
+result = ddag_build.audit_descriptions('.')
+# result["review_packets"] has one entry per compute node
+# Spawn one node-auditor agent per packet, collect results, present issues
+```
+
+For small DAGs (1-3 compute nodes), running auditors sequentially is fine. For larger DAGs, always run in parallel.

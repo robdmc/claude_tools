@@ -16,6 +16,8 @@ Instructions for Claude sessions working on this skill.
 ddag/
 ├── README.md              # Human documentation
 ├── CLAUDE.md              # This file — development instructions
+├── agents/
+│   └── node-auditor.md    # Per-node consistency audit agent
 ├── skills/
 │   ├── SKILL.md           # Skill definition for Claude
 │   ├── references/

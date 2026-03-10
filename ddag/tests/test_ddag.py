@@ -459,6 +459,9 @@ def test_audit_descriptions(tmp):
     packet = result["review_packets"][0]
     assert packet["node"] == "clean_visits.ddag"
     assert packet["transform"] is not None
+    assert packet["transform_plan"] is not None, "Review packet must include transform_plan"
+    assert "parameters" in packet, "Review packet must include parameters"
+    assert "drift" in packet, "Review packet must include drift"
     assert len(packet["inputs"]) > 0
     assert len(packet["outputs"]) > 0
     print("PASS")

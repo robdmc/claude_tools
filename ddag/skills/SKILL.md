@@ -107,6 +107,7 @@ ddag_build.load_build_script(script_path, root_dir, plans={node: plan})  # → [
 
 # Audit
 result = ddag_build.audit_descriptions(root_dir)  # → {"drift": [...], "review_packets": [...]}
+# Each review_packet: {node, description, inputs, transform, transform_plan, parameters, outputs, drift}
 ```
 
 ### CLI Quick Reference
@@ -324,17 +325,17 @@ User accepts all, edits specific items, or rejects.
 
 ### DAG-wide Audit
 
-Run `audit` (`python $CLI audit $ROOT`) to check description health across the entire DAG, or use the Python API for structured results:
+Run `audit` to check consistency across the entire DAG — verifying that each node's transform plan, code, input/output metadata, and column descriptions all tell a consistent story.
 
 ```python
 result = ddag_build.audit_descriptions(root_dir)
 # result["drift"]          — [{node, output, added, removed}] schema drift entries
-# result["review_packets"] — [{node, description, inputs, transform, outputs}] per-node context
+# result["review_packets"] — [{node, description, inputs, transform, transform_plan, parameters, outputs, drift}]
 ```
 
-Each **review packet** contains: input file descriptions and columns (from upstream producers), the node's transform code, and its output descriptions and columns. This gives you everything needed for semantic review without re-reading nodes.
+Each **review packet** is a self-contained bundle for auditing one compute node: input descriptions and columns (from upstream producers), the node's transform code and plan, parameters, output descriptions and columns, and any schema drift for that node.
 
-The audit has two mandatory phases — deterministic checks (missing descriptions, schema drift) and semantic review (verify descriptions match what the code actually does). Both phases are mandatory. See `references/workflows.md` § DAG-wide Audit for the full procedure.
+**Audit procedure:** Spawn one `node-auditor` agent per review packet (see `{AGENTS_DIR}/node-auditor.md`). Run them in parallel — each agent checks consistency in its own context window and returns either `CONSISTENT` or a list of inconsistencies. Collect agent results and present any inconsistencies to the user, who decides whether to fix the code or the metadata. See `references/workflows.md` § DAG-wide Audit for details.
 
 ## Modifying Existing Nodes
 
