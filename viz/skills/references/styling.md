@@ -22,7 +22,7 @@ Use seaborn for the statistical plot, matplotlib for customizations like referen
 - **Labels**: Descriptive axis labels with units, 12pt+ font
 - **Titles**: Clear, informative, 14pt+ font
 - **Figure size**: `figsize=(10, 6)` or appropriate aspect ratio
-- **Layout**: Always use `tight_layout()` to prevent clipping
+- **Layout**: Use `tight_layout()` for single plots. For subplots with `suptitle`, use `constrained_layout=True` in `plt.subplots()` instead — `tight_layout()` conflicts with `suptitle` and often clips the title
 - **Grids**: Subtle guidance with `alpha=0.3`
 - **Colors**: Colorblind-friendly palettes (viridis, coolwarm, Set2)
 - **Transparency**: Alpha for overlapping points

@@ -2,12 +2,14 @@
 name: ddag
 description: >
   Create and manage data pipeline DAGs where each node is a .ddag SQLite file
-  storing transformation metadata. Invoke via /ddag, /ddag <filename>, or
-  /ddag diagram. Use when: (1) user invokes /ddag with or without arguments,
+  storing transformation metadata. Supports data transforms, visualizations,
+  and other artifacts as pipeline outputs. Invoke via /ddag, /ddag <filename>,
+  or /ddag diagram. Use when: (1) user invokes /ddag with or without arguments,
   (2) creating data pipeline nodes (.ddag files), (3) defining transform
   functions between data files, (4) checking pipeline staleness or building
   stale nodes, (5) documenting data lineage and column-level metadata,
-  (6) modifying existing pipeline nodes.
+  (6) modifying existing pipeline nodes, (7) creating visualization nodes
+  that produce charts/plots as pipeline outputs.
   Triggers on: /ddag, /ddag diagram, /ddag <filename>, .ddag files, data
   pipeline, DAG node, transform function, data lineage, build pipeline.
   Do NOT use for: general SQL queries, general Python data analysis,
@@ -121,9 +123,9 @@ python $CLI clean $ROOT --yes   # Delete all compute node outputs (use --yes to 
 
 ## What is a Node
 
-A **node** is a `.ddag` file (SQLite database) representing one step in a data pipeline. Two types:
+A **node** is a `.ddag` file (SQLite database) representing one step in a data or reporting pipeline. Two types:
 - **Source node** (`function_body = NULL`): Documents a raw file that exists outside the pipeline.
-- **Compute node**: Contains a Python transform function that reads inputs and writes outputs.
+- **Compute node**: Contains a Python transform function that reads inputs and writes outputs. Outputs can be data files (`.csv`, `.parquet`) or artifacts like visualizations (`.png`, `.svg`, `.pdf`).
 
 All file paths are **relative to the project root**. The .ddag file stores only metadata, never data. DAG edges are discovered automatically by matching source paths to output paths across nodes. A single node can produce multiple output files.
 
@@ -211,6 +213,11 @@ Behavior depends on the file type.
 2. **If found in DAG** — present which node produces/consumes it, lineage chain, staleness, and column descriptions. Ask what to do next.
 3. **If not found** — tell the user it's untracked. Offer to wrap as a source node (Checkpoint 1 → create → Checkpoint 2).
 
+**Image/artifact file** (`.png`, `.svg`, `.pdf`):
+1. Run `file-context` (`python $CLI file-context --file <path> $ROOT`)
+2. **If found in DAG** — present which node produces it, lineage chain, staleness, and output description. Display the image if it's a PNG/SVG. Ask what to do next.
+3. **If not found** — tell the user it's untracked. (Do not offer to wrap as a source node — generated artifacts are compute outputs.)
+
 **Python script** (`.py`):
 Walk the user through converting a script into a compute node. See `references/workflows.md` § Script Conversion for the full procedure.
 
@@ -234,12 +241,21 @@ Propose a descriptive name for the .ddag file based on what the node does. User 
 
 Before writing any transform code, **inspect the schemas of all source files** by reading them with polars/pandas and printing `.schema` (for parquet) or `.dtypes`. Present the schemas alongside the plan so the transform handles the actual column types (e.g., `Datetime` vs `Date`, `Int64` vs `Float64`). This avoids type-mismatch errors at build time.
 
-Then present a plain-English description of the approach. This lets the user audit and modify the logic before code is generated. The plan should cover:
+Then present a plain-English description of the approach. This lets the user audit and modify the logic before code is generated.
+
+**For data output nodes**, the plan should cover:
 
 - **Inputs**: Which source files are read and which columns/subsets are used. Include the actual dtypes from schema inspection.
 - **Steps**: Numbered list of data operations in plain language (filtering, joins, aggregations, window functions, etc.). For each step, explain *what* it does and *why*.
 - **Edge cases**: How nulls, duplicates, overlapping intervals, or other tricky cases are handled
 - **Output**: What the result looks like — columns, grain (one row per what?), expected row count ballpark
+
+**For visualization output nodes** (`.png`, `.svg`, `.pdf`), the plan should cover:
+
+- **Inputs**: Which source files are read and which columns drive the visualization.
+- **Chart design**: Chart type (line, bar, scatter, etc.), what's on each axis, how data is segmented (color, facets, subplots).
+- **Styling**: Smoothing/aggregation, axis labels, legend, title.
+- **Output**: File format and approximate figure size.
 
 **Wait for user approval** before writing the transform function. The user may:
 - Approve as-is → proceed to code
@@ -266,14 +282,21 @@ After building (or for source nodes, after creation), review output metadata wit
 - **Metadata is empty** (first build) — propose descriptions
 - **Schema changed** (columns added/removed) — propose descriptions for new columns
 
-Present for each output file:
+**For data outputs** (`.csv`, `.parquet`), present for each output file:
 1. Proposed description for the output file
 2. Sample rows (5 rows)
 3. Column list with proposed descriptions
 
-User accepts all, edits specific items, or rejects. Apply corrections with `ddag_core.set_output_description()` and `ddag_core.set_column_descriptions()`.
+**For visualization outputs** (`.png`, `.svg`, `.pdf`), present for each output file:
+1. Display the image (if PNG/SVG)
+2. Proposed description of what the visualization shows — chart type, axes, segmentation, key takeaways
+3. Skip column descriptions entirely (not applicable)
 
-**Skip review** if outputs rebuild with same schema and existing descriptions are accurate.
+Use `ddag_core.set_output_description()` for all outputs. Use `ddag_core.set_column_descriptions()` for data outputs only.
+
+User accepts all, edits specific items, or rejects.
+
+**Skip review** if outputs rebuild with same schema/appearance and existing descriptions are accurate.
 
 ### DAG-wide Audit
 
@@ -322,7 +345,25 @@ def transform(sources, params, outputs):
     df.write_parquet(outputs['clean_visits'])
 ```
 
+Visualization nodes follow the same pattern, writing an image instead of data:
+
+```python
+def transform(sources, params, outputs):
+    import pandas as pd
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    df = pd.read_parquet(sources['metrics'])
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.plot(df['date'], df['value'])
+    plt.savefig(outputs['metrics_chart'], dpi=150, bbox_inches='tight')
+    plt.close()
+```
+
 **Rules:** All imports go inside the function body. Source/output dict keys are the file stem (e.g., `visits.csv` → `sources['visits']`). Prefer polars when no clear winner for data library.
+
+**Visualization rules:** Always use `matplotlib.use("Agg")` for headless rendering and `plt.close()` instead of `plt.show()` — transforms run in build scripts without a display. If the `viz` skill is installed, you can reference its styling guide (`~/.claude/skills/viz/references/styling.md`) for publication-quality defaults (fonts, colors, layout). Otherwise, use matplotlib/seaborn defaults with sensible figure sizes.
 
 ## Staleness & Building
 
@@ -336,7 +377,7 @@ Before the first build, verify that required Python packages (e.g., polars, pand
 python {SKILL_DIR}/scripts/ddag_build.py build --root .
 ```
 
-This finds stale nodes, executes transforms, updates output stats, and prints sample rows. Output stats are auto-detected for CSV and Parquet files only.
+This finds stale nodes, executes transforms, updates output stats, and prints sample rows. Output stats (row_count, col_count) are auto-detected for CSV and Parquet files only. Visualization outputs (`.png`, `.svg`, `.pdf`) will not have stats — this is expected.
 
 **Manual alternative** (when you need the build script as a file):
 1. Run `script` to generate the build script
