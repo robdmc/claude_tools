@@ -1,17 +1,21 @@
 ---
 name: ddag
 description: >
-  Create and manage data pipeline DAGs where each node is a .ddag SQLite file
-  storing transformation metadata. Supports data transforms, visualizations,
-  and other artifacts as pipeline outputs. Invoke via /ddag, /ddag <filename>,
-  or /ddag diagram. Use when: (1) user invokes /ddag with or without arguments,
-  (2) creating data pipeline nodes (.ddag files), (3) defining transform
-  functions between data files, (4) checking pipeline staleness or building
-  stale nodes, (5) documenting data lineage and column-level metadata,
+  Like Make for data files — track dependencies between data files and
+  automatically rebuild stale outputs. Each pipeline node is a .ddag SQLite
+  file storing transformation metadata (never data). Supports data transforms,
+  visualizations, and other artifacts as pipeline outputs.
+  Invoke via /ddag, /ddag <filename>, or /ddag diagram.
+  Use when: (1) user invokes /ddag with or without arguments,
+  (2) creating data pipeline nodes (.ddag files), (3) defining transforms
+  between data files, (4) checking pipeline staleness or building stale nodes,
+  (5) documenting data lineage and column-level metadata,
   (6) modifying existing pipeline nodes, (7) creating visualization nodes
-  that produce charts/plots as pipeline outputs.
+  that produce charts/plots as pipeline outputs,
+  (8) asking which node produces a given file or where data comes from.
   Triggers on: /ddag, /ddag diagram, /ddag <filename>, .ddag files, data
-  pipeline, DAG node, transform function, data lineage, build pipeline.
+  pipeline, DAG node, data lineage, build pipeline, which node produces
+  this file, data provenance.
   Do NOT use for: general SQL queries, general Python data analysis,
   Airflow/Prefect/dbt pipelines, or ad-hoc data exploration.
 ---
@@ -26,6 +30,7 @@ description: >
 - Branching, cloning, or deactivating nodes → `references/workflows.md` § Branching
 - Converting a Python script to a node → `references/workflows.md` § Script Conversion
 - Build-script generation, edit-and-sync-back workflow → `references/workflows.md` § Build Script Workflow
+- Build or transform errors → `references/workflows.md` § Error Recovery
 - Need CLI flags beyond what's in the Quick Reference below → `references/cli.md`
 - SQLite table schema and staleness rules → `references/schema.md`
 
@@ -207,6 +212,8 @@ Walk the user through converting a script into a compute node. See `references/w
 
 ## Exploring an Existing Pipeline
 
+**`summary` vs `status`:** `summary` returns JSON (node counts, pipeline structure) — use it for programmatic decisions (e.g., bare `/ddag` invocation). `status` prints a human-readable table with per-node staleness — use it for display and exploration.
+
 When dropped into a project with existing .ddag files:
 
 1. Run `status` (`python $CLI status $ROOT`) to list all nodes, their types, and staleness
@@ -219,7 +226,7 @@ Three mandatory checkpoints. Everything else is autonomous.
 
 ### Checkpoint 1 — Naming
 
-Propose a descriptive name for the .ddag file based on what the node does. User confirms or renames. Place the .ddag file near its output files.
+Propose a descriptive name for the .ddag file based on what the node does. User confirms or renames. Place the .ddag file alongside its output files (e.g., if outputs go to `analysis/`, put the .ddag file in `analysis/` too).
 
 ### Checkpoint 1b — Transform Plan (compute nodes only)
 
@@ -288,17 +295,7 @@ User accepts all, edits specific items, or rejects.
 
 ### DAG-wide Audit
 
-Run `audit` to check consistency across the entire DAG — verifying that each node's transform plan, code, input/output metadata, and column descriptions all tell a consistent story.
-
-```python
-result = ddag_build.audit_descriptions(root_dir)
-# result["drift"]          — [{node, output, added, removed}] schema drift entries
-# result["review_packets"] — [{node, description, inputs, transform, transform_plan, parameters, outputs, drift}]
-```
-
-Each **review packet** is a self-contained bundle for auditing one compute node: input descriptions and columns (from upstream producers), the node's transform code and plan, parameters, output descriptions and columns, and any schema drift for that node.
-
-**Audit procedure:** Spawn one `node-auditor` agent per review packet (see `{AGENTS_DIR}/node-auditor.md`). Run them in parallel — each agent checks consistency in its own context window and returns either `CONSISTENT` or a list of inconsistencies. Collect agent results and present any inconsistencies to the user, who decides whether to fix the code or the metadata. See `references/workflows.md` § DAG-wide Audit for details.
+Check consistency across the entire DAG — verifying that each node's transform plan, code, and metadata tell a consistent story. See `references/workflows.md` § DAG-wide Audit for the full procedure including how to spawn `node-auditor` agents in parallel.
 
 ## Modifying Existing Nodes
 
@@ -389,14 +386,7 @@ After building, proceed to metadata review (Checkpoint 2) for any nodes with emp
 
 ## Error Recovery
 
-Common errors and fixes:
-
-- **Build fails with ImportError**: Install the missing package (`pip install polars`, etc.) and retry.
-- **Build fails with transform error**: Fix the function with `ddag_core.set_function()`, then rebuild.
-- **"database is locked" error**: Another process has the .ddag file open. Close it and retry.
-- **Staleness detection seems wrong**: Run `status` to inspect timestamps — check `updated_at` vs `built_at`.
-- **"Duplicate output path" error on build**: Two active nodes claim the same output. Deactivate one (see Branching).
-- **Schema drift after rebuild**: Run `audit` to identify new/removed columns, then update descriptions at Checkpoint 2.
+For common errors (ImportError, database locked, staleness detection issues, duplicate output paths, schema drift), see `references/workflows.md` § Error Recovery.
 
 ## Anti-patterns
 

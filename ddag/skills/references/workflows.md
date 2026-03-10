@@ -2,9 +2,11 @@
 
 ## Contents
 
+- [Build Script Workflow](#build-script-workflow)
 - [Script Conversion](#script-conversion)
 - [Branching (Exploratory Workflows)](#branching-exploratory-workflows)
 - [DAG-wide Audit](#dag-wide-audit)
+- [Error Recovery](#error-recovery)
 
 ## Build Script Workflow
 
@@ -54,7 +56,7 @@ def transform(sources, params, outputs):
 
 Branch a node to experiment with alternatives while preserving the original. The clone keeps the same output paths, so downstream nodes wire automatically — no rewiring needed.
 
-Use `clone_node`, `deactivate_node`, and `activate_node` from `ddag_core` (see `references/api.md` for signatures).
+Use `clone_node`, `deactivate_node`, and `activate_node` from `ddag_core` (see the Python API Quick Reference in SKILL.md for signatures).
 
 ### Branch a node
 
@@ -108,3 +110,14 @@ result = ddag_build.audit_descriptions('.')
 ```
 
 For small DAGs (1-3 compute nodes), running auditors sequentially is fine. For larger DAGs, always run in parallel.
+
+## Error Recovery
+
+Common errors and fixes:
+
+- **Build fails with ImportError**: Install the missing package (`pip install polars`, etc.) and retry.
+- **Build fails with transform error**: Fix the function with `ddag_core.set_function()`, then rebuild.
+- **"database is locked" error**: Another process has the .ddag file open. Close it and retry.
+- **Staleness detection seems wrong**: Run `status` to inspect timestamps — check `updated_at` vs `built_at`.
+- **"Duplicate output path" error on build**: Two active nodes claim the same output. Deactivate one (see Branching).
+- **Schema drift after rebuild**: Run `audit` to identify new/removed columns, then update descriptions at Checkpoint 2.
