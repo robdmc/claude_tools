@@ -32,6 +32,7 @@ You receive a single ddag review packet (JSON) describing one compute node in a 
 Work through these in order. For each, note whether it passes or fails with a brief explanation.
 
 ### 1. Transform plan vs code
+- If `transform_plan` is null or empty, flag as inconsistent: "Missing transform plan — node predates plan requirement." Skip the remaining plan-vs-code checks.
 - Does the code implement what the plan describes?
 - Are all steps mentioned in the plan present in the code?
 - Does the code do anything significant not mentioned in the plan?
