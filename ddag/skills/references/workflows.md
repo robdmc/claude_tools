@@ -95,7 +95,8 @@ result = ddag_build.audit_descriptions(root_dir)
    - Input consistency — does the code use all declared sources and parameters?
    - Output consistency — do output/column descriptions match what the code produces?
    - Schema drift — are there columns added/removed from actual files since descriptions were written?
-   - Cross-cutting — is the node description accurate? Are pass-through columns consistent with upstream?
+   - Cross-node consistency — does the code/plan treat each input consistently with the producer's output descriptions? Do join scopes align? Are column semantics preserved or silently reinterpreted?
+   - Cross-cutting — is the node description accurate?
 
 3. **Collect results**: Each agent returns either `CONSISTENT` (one line) or `INCONSISTENT` with a list of specific issues.
 

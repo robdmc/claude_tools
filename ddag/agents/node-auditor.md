@@ -1,7 +1,7 @@
 ---
 name: node-auditor
 description: Audit a single ddag node for consistency between transform plan, code, and metadata.
-model: sonnet
+model: opus
 tools:
   - Read
   - Grep
@@ -51,9 +51,15 @@ Work through these in order. For each, note whether it passes or fails with a br
 ### 4. Schema drift
 - If drift entries exist, flag them — columns were added or removed from actual files since descriptions were written.
 
-### 5. Cross-cutting
-- Does the node-level description accurately summarize the overall transform?
+### 5. Cross-node consistency
+- For each input, verify that the node's code and plan treat it consistently with the producer's output description and column definitions. Specifically:
+  - If the producer's description states a filter scope (e.g., "visits since 2025-01-01"), does this node's plan and code correctly reflect that scope, or does it assume something broader/narrower?
+  - If the producer's column description says a column measures X, does this node's code and output descriptions use it as X, or do they silently reinterpret it?
+  - If multiple inputs are joined, do their filter scopes and grains align, or could the join silently drop or duplicate rows in ways not acknowledged by the plan?
 - Are pass-through columns (read from input, written unchanged to output) described consistently with their upstream descriptions?
+
+### 6. Cross-cutting
+- Does the node-level description accurately summarize the overall transform?
 
 ## Response Format
 
