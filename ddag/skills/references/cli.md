@@ -19,8 +19,8 @@ Run `--help` for full details on any command. Most commands have Python equivale
 | `diagram` | Render Mermaid DAG diagram to PNG or .mmd fallback | `-o <path>` |
 | `dump-function` | Dump transform function to .py for external editing | `--node <path>` (required) |
 | `load-function` | Load edited transform function back into node | `--node <path>` (required), `--plan <text>` (required) |
-| `load-script` | *Disabled in CLI* — use Python API with plans dict | |
-| `clean` | Delete all compute node output files (interactive confirmation) | |
+| `load-script` | *Disabled in CLI* — use Python API: `ddag_build.load_build_script(path, root, plans={...})` | |
+| `clean` | Delete all compute node output files (interactive confirmation) | `--yes` / `-y` to skip prompt |
 
 ## Examples
 

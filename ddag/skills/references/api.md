@@ -35,8 +35,11 @@ ddag_core.create_compute_node('pipeline/clean.ddag',
     transform_plan='Read visits.csv, filter rows where date >= min_date, write to parquet.',
     params={'min_date': {'type': 'str', 'value': '2024-01-01', 'description': 'Cutoff date'}})
 
-# Read node metadata — returns dict with: description, sources, parameters,
-# transform_function, transform_plan, updated_at, outputs, output_columns, is_source_node
+# Read node metadata — returns dict with keys:
+#   description, is_active, branched_from, force_stale, sources (list of paths),
+#   parameters (list of dicts), transform_function (str|None), transform_plan (str|None),
+#   updated_at, outputs (list of {path, description, row_count, col_count, built_at}),
+#   output_columns ({output_path: [{name, description}]}), is_source_node (bool)
 meta = ddag_core.read_node('pipeline/clean.ddag')
 
 # Read just the transform plan
@@ -88,17 +91,26 @@ ddag_core.clear_force_stale('pipeline/clean.ddag') # resume normal staleness rul
 ## ddag_build — DAG Operations
 
 ```python
-# Scan all nodes
-nodes = ddag_build.scan_nodes('.')
+# Scan nodes
+nodes = ddag_build.scan_nodes('.')                              # active nodes only
+nodes = ddag_build.scan_nodes('.', include_inactive=True)       # all nodes (active + inactive)
 edges, output_to_node = ddag_build.build_dag(nodes)
 
-# Staleness
-stale = ddag_build.find_stale_nodes('.')  # list of paths in build order
+# Conflict detection — check for two active nodes claiming the same output
+conflicts = ddag_build.check_output_conflicts(nodes)  # → [(output_path, [node_paths])] or []
 
-# Build script generation
+# Staleness
+stale = ddag_build.find_stale_nodes('.')          # stale nodes in build order
+all_compute = ddag_build.find_all_compute_nodes('.')  # all compute nodes in build order (for script --all)
+
+# Build (preferred — handles conflicts, cycles, stats, and sample output in one call)
+built = ddag_build.build_nodes('.', node_filter=None, sample_rows=5)  # → list of built node paths
+built = ddag_build.build_nodes('.', node_filter='pipeline/clean.ddag')  # build single node (+ stale upstream)
+
+# Build script generation (manual alternative to build_nodes)
 script = ddag_build.generate_build_script(stale, nodes, '.')
 
-# After building, update stats for all built nodes
+# After manual build, update stats for all built nodes
 for node_path in stale:
     ddag_build.update_output_stats_after_build(node_path, root_dir='.')
 
@@ -117,9 +129,18 @@ components = ddag_build.find_connected_components(edges)
 mermaid_src = ddag_build.generate_mermaid(nodes, edges)
 png_path = ddag_build.render_diagram('.', output_path='pipeline.png')
 
-# Parse edited build script back into nodes — plans required for changed nodes
-results = ddag_build.load_build_script('_ddag_build.py', '.', plans={'clean.ddag': updated_plan})  # [(node_path, changed)]
+# Build script round-trip
+parsed = ddag_build.parse_build_script('_ddag_build.py')  # → {node_path: function_body} (inspect without updating)
+results = ddag_build.load_build_script('_ddag_build.py', '.', plans={'clean.ddag': updated_plan})  # → [(node_path, changed)]
 
 # File context (full DAG context for a data file)
+# Returns: {found, file_path, producer (node_path|None), producer_meta (read_node dict|None),
+#   consumers ([node_paths]), consumer_metas ([read_node dicts]), lineage_up ([node_paths]),
+#   lineage_down ([node_paths]), stale (bool|None)}
 ctx = ddag_build.file_context('data/visits.csv', '.')
+
+# Audit — returns structured drift + review packets for LLM consistency review
+result = ddag_build.audit_descriptions('.')
+# result["drift"]          — [{node, output, added, removed}]
+# result["review_packets"] — [{node, description, inputs, transform, outputs}]
 ```

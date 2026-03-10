@@ -41,7 +41,11 @@ ddag_core.create_compute_node(ddag_path, description, source_paths, output_paths
 ddag_core.create_source_node(ddag_path, description, output_paths)
 
 # Inspection
-ddag_core.read_node(ddag_path)                        # → dict with all node metadata
+ddag_core.read_node(ddag_path)                        # → dict (see keys below)
+#   Keys: description, is_active, branched_from, force_stale, sources (list of paths),
+#   parameters (list of dicts), transform_function (str|None), transform_plan (str|None),
+#   updated_at, outputs (list of {path, description, row_count, col_count, built_at}),
+#   output_columns ({output_path: [{name, description}]}), is_source_node (bool)
 ddag_core.get_sources_dict(ddag_path)                  # → {stem: path}
 ddag_core.get_outputs_dict(ddag_path)                  # → {stem: path}
 ddag_core.get_params_dict(ddag_path)                   # → {name: typed_value}
@@ -66,22 +70,29 @@ ddag_core.set_force_stale(ddag_path)             # force rebuild on next build
 ddag_core.clear_force_stale(ddag_path)           # resume normal staleness rules
 
 # External editing round-trip
-ddag_core.dump_function(ddag_path, output_path=None)   # → _ddag_{stem}.py
-ddag_core.load_function(ddag_path, input_path=None)    # load edited .py back
+ddag_core.dump_function(ddag_path, output_path=None)              # → _ddag_{stem}.py
+ddag_core.load_function(ddag_path, transform_plan, input_path=None)  # load edited .py back (plan required)
 
 # --- ddag_build: DAG-wide operations ---
 
-nodes = ddag_build.scan_nodes(root_dir)                # scan all .ddag files → dict
-edges, output_to_node = ddag_build.build_dag(nodes)    # discover DAG edges
-stale = ddag_build.find_stale_nodes(root_dir)          # stale nodes in build order
-script = ddag_build.generate_build_script(stale, nodes, root_dir)  # → Python script string
-ddag_build.update_output_stats_after_build(node_path, root_dir)    # update stats post-build
+nodes = ddag_build.scan_nodes(root_dir)                           # scan active .ddag files → dict
+nodes = ddag_build.scan_nodes(root_dir, include_inactive=True)    # scan ALL .ddag files (active + inactive)
+edges, output_to_node = ddag_build.build_dag(nodes)               # discover DAG edges
+conflicts = ddag_build.check_output_conflicts(nodes)              # → [(output_path, [node_paths])] or []
+stale = ddag_build.find_stale_nodes(root_dir)                     # stale nodes in build order
+all_compute = ddag_build.find_all_compute_nodes(root_dir)         # all compute nodes in build order
+script = ddag_build.generate_build_script(stale, nodes, root_dir) # → Python script string
+built = ddag_build.build_nodes(root_dir, node_filter=None, sample_rows=5)  # build stale, update stats, print samples → [node_paths]
+ddag_build.update_output_stats_after_build(node_path, root_dir)   # update stats post-build
 
 # Lineage & lookups
 ddag_build.trace_lineage(node_path, edges, 'up'|'down')  # → list of ancestor/descendant paths
 ddag_build.find_node_for_file(file_path, nodes)           # → node_path or None
 ddag_build.find_consumers(file_path, nodes)               # → list of consuming node paths
-ddag_build.file_context(file_path, root_dir)              # → full DAG context dict for a file
+ddag_build.file_context(file_path, root_dir)              # → dict (see keys below)
+#   Keys: found (bool), file_path, producer (node_path|None), producer_meta (read_node dict|None),
+#   consumers ([node_paths]), consumer_metas ([read_node dicts]), lineage_up ([node_paths]),
+#   lineage_down ([node_paths]), stale (bool|None)
 
 # Structure
 ddag_build.find_connected_components(edges)    # → list of node-path sets (subgraphs)
@@ -91,7 +102,11 @@ ddag_build.generate_mermaid(nodes, edges)      # → mermaid source string
 ddag_build.render_diagram(root_dir, output_path)  # → PNG path
 
 # Build script round-trip
-ddag_build.load_build_script(script_path, root_dir)  # → [(node_path, changed)]
+ddag_build.parse_build_script(script_path)                        # → {node_path: function_body} (inspect without updating)
+ddag_build.load_build_script(script_path, root_dir, plans={node: plan})  # → [(node_path, changed)] (plans required for changed nodes)
+
+# Audit
+result = ddag_build.audit_descriptions(root_dir)  # → {"drift": [...], "review_packets": [...]}
 ```
 
 ### CLI Quick Reference
@@ -112,11 +127,10 @@ python $CLI diagram $ROOT -o diagram.png
 python $CLI build --node path/to/node.ddag $ROOT
 python $CLI lineage --node path/to/node.ddag $ROOT
 python $CLI dump-function --node path/to/node.ddag $ROOT
-python $CLI load-function --node path/to/node.ddag $ROOT
+python $CLI load-function --node path/to/node.ddag --plan "Updated plan text" $ROOT
 
 # File lookup
 python $CLI file-context --file path/to/data.parquet $ROOT
-python $CLI load-script --file _ddag_build.py $ROOT
 
 # Cleanup
 python $CLI clean $ROOT --yes   # Delete all compute node outputs (use --yes to skip interactive prompt)
@@ -139,7 +153,7 @@ For the full SQLite schema, see `references/schema.md`.
 ### Bare `/ddag` (no arguments)
 
 1. Run `summary` (`python $CLI summary $ROOT`)
-2. Scan for inactive nodes: `summary` only returns active nodes. Also glob for all `.ddag` files and call `ddag_core.is_active(path)` on each. Any inactive nodes should appear in the node table with status `INACTIVE` (appended after the active nodes).
+2. Scan for inactive nodes: `summary` only returns active nodes. Call `ddag_build.scan_nodes(root_dir, include_inactive=True)` and filter for nodes where `is_active` is False. Any inactive nodes should appear in the node table with status `INACTIVE` (appended after the active nodes).
 3. Branch on the result:
 
 **No nodes found** — Tell the user there's no pipeline yet. Ask how to start:
@@ -196,8 +210,9 @@ The generated `_ddag_build.py` is not a one-way export. The user can edit indivi
 
 1. `script --all` → generate `_ddag_build.py`
 2. User edits functions in `_ddag_build.py`
-3. Review the changes, revise the transform plan for each changed node
-4. `ddag_build.load_build_script('_ddag_build.py', '.', plans={node: updated_plan, ...})` → updates changed `.ddag` nodes with revised plans
+3. Inspect what changed: `ddag_build.parse_build_script('_ddag_build.py')` → `{node_path: function_body}` — compare against current node functions to identify edits
+4. Review the changes, revise the transform plan for each changed node
+5. `ddag_build.load_build_script('_ddag_build.py', '.', plans={node: updated_plan, ...})` → updates changed `.ddag` nodes with revised plans
 
 ### `/ddag clean`
 
@@ -309,7 +324,17 @@ User accepts all, edits specific items, or rejects.
 
 ### DAG-wide Audit
 
-Run `audit` (`python $CLI audit $ROOT`) to check description health across the entire DAG. The audit has two mandatory phases — deterministic checks (missing descriptions, schema drift) and semantic review (verify descriptions match what the code actually does). Both phases are mandatory. See `references/workflows.md` § DAG-wide Audit for the full procedure.
+Run `audit` (`python $CLI audit $ROOT`) to check description health across the entire DAG, or use the Python API for structured results:
+
+```python
+result = ddag_build.audit_descriptions(root_dir)
+# result["drift"]          — [{node, output, added, removed}] schema drift entries
+# result["review_packets"] — [{node, description, inputs, transform, outputs}] per-node context
+```
+
+Each **review packet** contains: input file descriptions and columns (from upstream producers), the node's transform code, and its output descriptions and columns. This gives you everything needed for semantic review without re-reading nodes.
+
+The audit has two mandatory phases — deterministic checks (missing descriptions, schema drift) and semantic review (verify descriptions match what the code actually does). Both phases are mandatory. See `references/workflows.md` § DAG-wide Audit for the full procedure.
 
 ## Modifying Existing Nodes
 
@@ -394,7 +419,7 @@ This finds stale nodes, executes transforms, updates output stats, and prints sa
 2. Save as `_ddag_build.py` (ephemeral, gitignored) and execute
 3. Update output stats with `ddag_build.update_output_stats_after_build()`
 
-**Incorporating edits from a build script:** If the user edited `_ddag_build.py`, run `load-script` to update the changed nodes back. This is the one exception to the "never execute a transform to learn about the DAG" rule.
+**Incorporating edits from a build script:** If the user edited `_ddag_build.py`, use the edit-and-sync-back workflow (see above) to parse changes and update nodes via the Python API. This is the one exception to the "never execute a transform to learn about the DAG" rule.
 
 After building, proceed to metadata review (Checkpoint 2) for any nodes with empty descriptions.
 
