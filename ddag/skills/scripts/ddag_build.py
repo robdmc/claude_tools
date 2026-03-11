@@ -16,6 +16,8 @@ def scan_nodes(root_dir=".", include_inactive=False):
     root = Path(root_dir)
     nodes = {}
     for ddag_file in root.rglob("*.ddag"):
+        if not ddag_file.is_file():
+            continue
         rel = str(ddag_file.relative_to(root))
         meta = ddag_core.read_node(str(ddag_file))
         if include_inactive or meta.get("is_active", True):
@@ -670,6 +672,45 @@ def audit_descriptions(root_dir="."):
     return {"drift": drift, "review_packets": review_packets}
 
 
+def audit_node(node_path, root_dir="."):
+    """Audit a single node for schema drift and build its review packet.
+
+    Returns the same structure as audit_descriptions() but scoped to one node:
+        drift:   [{node, output, added, removed}]
+        review_packets: [{node, description, inputs, transform, transform_plan, parameters, outputs, drift}]
+    """
+    nodes = scan_nodes(root_dir)
+    if node_path not in nodes:
+        raise ValueError(f"Node not found: {node_path}")
+
+    edges, _ = build_dag(nodes)
+    root = Path(root_dir)
+    meta = nodes[node_path]
+
+    drift = []
+    for out in meta["outputs"]:
+        opath = out["path"]
+        described_cols = meta.get("output_columns", {}).get(opath, [])
+        actual_cols = _read_actual_columns(str(root / opath))
+        if actual_cols is not None and described_cols:
+            described_names = {c["name"] for c in described_cols}
+            added = actual_cols - described_names
+            removed = described_names - actual_cols
+            if added or removed:
+                drift.append({
+                    "node": node_path, "output": opath,
+                    "added": sorted(added), "removed": sorted(removed),
+                })
+
+    review_packets = []
+    if not meta["is_source_node"]:
+        packet = _build_review_packet(node_path, meta, nodes, edges)
+        packet["drift"] = drift
+        review_packets.append(packet)
+
+    return {"drift": drift, "review_packets": review_packets}
+
+
 def _build_review_packet(node_path, meta, nodes, edges):
     """Assemble per-node context for LLM consistency review.
 
@@ -904,7 +945,7 @@ examples:
 
     elif args.command == "audit":
         import json
-        result = audit_descriptions(args.root)
+        result = audit_node(args.node, args.root) if args.node else audit_descriptions(args.root)
         if result["drift"]:
             print(f"Schema drift ({len(result['drift'])}):")
             for d in result["drift"]:

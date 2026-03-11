@@ -15,7 +15,8 @@ description: >
   (8) asking which node produces a given file or where data comes from.
   Triggers on: /ddag, /ddag diagram, /ddag <filename>, .ddag files, data
   pipeline, DAG node, data lineage, build pipeline, which node produces
-  this file, data provenance.
+  this file, data provenance, edit code, see the code, review code,
+  open in editor.
   Do NOT use for: general SQL queries, general Python data analysis,
   Airflow/Prefect/dbt pipelines, or ad-hoc data exploration.
 ---
@@ -112,6 +113,7 @@ ddag_build.load_build_script(script_path, root_dir, plans={node: plan})  # → [
 
 # Audit
 result = ddag_build.audit_descriptions(root_dir)  # → {"drift": [...], "review_packets": [...]}
+result = ddag_build.audit_node(node_path, root_dir)  # → same structure, scoped to one node
 # Each review_packet: {node, description, inputs, transform, transform_plan, parameters, outputs, drift}
 ```
 
@@ -127,6 +129,7 @@ python $CLI status $ROOT
 python $CLI stale $ROOT
 python $CLI build $ROOT
 python $CLI audit $ROOT
+python $CLI audit --node path/to/node.ddag $ROOT   # single-node audit
 python $CLI diagram $ROOT -o diagram.png
 
 # Per-node
@@ -337,6 +340,8 @@ The most common action: tweak a transform and see results.
 2. Update the function and plan together: `ddag_core.set_function(path, new_body, updated_plan)` — revise the existing plan to reflect the code changes. **The updated plan must use the same structured bullet format as Checkpoint 1b** (Inputs/Steps/Edge cases/Output for data nodes; Inputs/Chart design/Styling/Output for viz nodes). If the existing plan is prose, reformat it into the structured format while incorporating the changes.
 3. `python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .`
 
+**External editor** (vim in iTerm2): Opens the node's code in vim in a new terminal window. See "External Code Editor" section below.
+
 **External editor** (dump → edit → load → build): After the user edits the dumped `.py` file, read the new code, revise the existing plan to match, then call `ddag_core.load_function(path, updated_plan)`. **The revised plan must use the same structured bullet format as Checkpoint 1b.** See `references/cli.md` for the dump/load commands.
 
 The `build` command handles staleness, execution, stat updates, and prints the first 5 rows of each output. Show these rows to the user.
@@ -399,6 +404,37 @@ After building, proceed to metadata review (Checkpoint 2) for any nodes with emp
 ## Error Recovery
 
 For common errors (ImportError, database locked, staleness detection issues, duplicate output paths, schema drift), see `references/workflows.md` § Error Recovery.
+
+## External Code Editor
+
+Open a node's transform code in vim in a new iTerm2 window for hands-on editing, review, and commit — without going through the conversation.
+
+**Trigger phrases:** "edit the code", "see the code", "review the code", "open in editor", "open in vim", "let me edit it"
+
+**Invocation:**
+
+```python
+subprocess.run([sys.executable, '{SKILL_DIR}/scripts/ddag_edit.py', '<node_path>', '--root', '.'])
+```
+
+**What happens:**
+1. The node's `function_body` is written to `.ddag_work/<name>.code.py`
+2. Vim opens in a new iTerm2 window with the code
+3. After vim exits, vimdiff shows a side-by-side review if changes were made
+4. User chooses to commit or abandon
+5. On commit, changes are written back to the .ddag file via `load_function` (existing transform plan is preserved)
+6. A single-node audit runs automatically, showing the review packet and any schema drift
+
+**After the user returns from editing:** The iTerm2 window handles the full commit workflow. If the user committed changes, the node's function is already updated. Run a build to execute the updated transform:
+
+```bash
+python {SKILL_DIR}/scripts/ddag_build.py build --node <node_path> --root .
+```
+
+**Error cases:**
+- Source nodes (no code): exits with error message
+- Previous session files in `.ddag_work/`: warns and cleans up before proceeding
+- `load_function` failure: temp files are preserved so the user can retry
 
 ## Anti-patterns
 
