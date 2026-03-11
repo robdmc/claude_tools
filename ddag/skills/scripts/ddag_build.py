@@ -1063,6 +1063,8 @@ examples:
                     "stale_count": len(stale_nodes),
                     "stale_nodes": stale_nodes,
                     "descriptions": {n: nodes[n]["description"] for n in order},
+                    "outputs": {n: [o["path"] for o in nodes[n]["outputs"]] for n in order},
+                    "types": {n: "source" if nodes[n]["is_source_node"] else "compute" for n in order},
                 })
 
             result = {

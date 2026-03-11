@@ -101,16 +101,15 @@ For the full SQLite schema, see `references/schema.md`.
 
 ### Bare `/ddag` (no arguments)
 
-1. Run `summary` (`python $CLI summary $ROOT`)
-2. Scan for inactive nodes: run `python $CLI summary --include-inactive $ROOT` to include inactive nodes in the JSON output. Any inactive nodes should appear in the node table with status `INACTIVE` (appended after the active nodes).
-3. Branch on the result:
+1. Run `summary --include-inactive` (`python $CLI summary --include-inactive $ROOT`) — this single call returns everything needed: node list in topological order, descriptions, output paths, node types (source/compute), staleness, and inactive nodes.
+2. Branch on the result:
 
 **No nodes found** — Tell the user there's no pipeline yet. Ask how to start:
 - Point at a data file to wrap as a source node (`/ddag data.csv`)
 - Point at a script to convert into a node (`/ddag script.py`)
 - Describe a transform to create from scratch
 
-**One pipeline** (single connected DAG) — Run `python $CLI show --node <path> $ROOT` for each node to get output file extensions from `outputs_dict` (not included in `summary`). Present a node table in topological order with columns: Node, Type (source/compute), Output extension, Status (ok/STALE/INACTIVE), Description. Include inactive nodes at the bottom. Ask what the user wants to do next.
+**One pipeline** (single connected DAG) — All data is in the summary response: `outputs` for file paths, `types` for source/compute, `stale_nodes` for staleness, `descriptions` for descriptions. No additional CLI calls needed. Present a node table in topological order with columns: Node, Type (source/compute), Output extension, Status (ok/STALE/INACTIVE), Description. Include inactive nodes at the bottom. Ask what the user wants to do next.
 
 **Multiple pipelines** (disconnected subgraphs) — Show a pipeline summary (sources, compute, stale counts per subgraph), then a node table per pipeline. Ask which pipeline to work with.
 
@@ -136,6 +135,30 @@ python $CLI clean $ROOT --yes
 
 The `--yes` flag skips the interactive confirmation prompt (required in non-interactive environments). The command lists files to delete, then deletes them. Source node outputs are never touched.
 
+### Audit (single node or whole DAG)
+
+**Trigger:** user says "audit", "audit <node>", "audit the pipeline", or semantically similar.
+
+An audit has two steps — structural check via CLI, then LLM critique via node-auditor agents. **Always do both.**
+
+1. **Get review packets:**
+   - Single node: `python $CLI audit --node <path> $ROOT --json`
+   - Whole DAG: `python $CLI audit $ROOT --json`
+
+2. **Spawn `node-auditor` agents** — one per review packet in the result's `review_packets` array. Pass the full packet (inputs, transform code, transform plan, parameters, outputs, drift) as the agent prompt. Each agent checks:
+   - Transform plan vs code — does the code implement what the plan describes?
+   - Input consistency — does the code use all declared sources and parameters?
+   - Output consistency — do output/column descriptions match what the code produces?
+   - Schema drift — columns added/removed since descriptions were written?
+   - Cross-node consistency — are column semantics preserved across node boundaries?
+   - Cross-cutting — is the node description accurate?
+
+3. **Run agents in parallel** for 4+ nodes. For 1–3 nodes, sequential is fine.
+
+4. **Present results:** Each agent returns `CONSISTENT` or `INCONSISTENT` with specific issues. Surface any inconsistencies to the user for resolution (fix code via `set_function` or fix metadata via `set_output_description`/`set_column_descriptions`).
+
+The CLI `audit` command alone only checks structural metadata (drift, missing descriptions). The node-auditor agent is what reviews plan-to-code consistency — **always spawn it**.
+
 ### `/ddag <filename>` (with a file argument)
 
 Behavior depends on the file type.
@@ -155,13 +178,12 @@ Walk the user through converting a script into a compute node. See `references/w
 
 ## Exploring an Existing Pipeline
 
-**`summary` vs `status`:** `summary` returns JSON (node counts, pipeline structure) — use it for programmatic decisions (e.g., bare `/ddag` invocation). `status` prints a human-readable table with per-node staleness — use it for display and exploration.
+**`summary --include-inactive`** is the single entry point for understanding a pipeline. It returns JSON with node list (topological order), types, descriptions, output paths, staleness, and inactive nodes — everything needed to orient. Use `show --node` only when you need a specific node's transform code, plan, column descriptions, or parameters.
 
 When dropped into a project with existing .ddag files:
 
-1. Run `status` (`python $CLI status $ROOT`) to list all nodes, their types, and staleness
-2. Use `python $CLI show --node <path> $ROOT` on key nodes to inspect metadata
-3. Run `stale` (`python $CLI stale $ROOT`) to see what needs rebuilding
+1. Run `summary --include-inactive` (`python $CLI summary --include-inactive $ROOT`) — one call gives you nodes, types, outputs, staleness, and descriptions
+2. Use `python $CLI show --node <path> $ROOT` only for nodes you need to inspect in detail (transform code, plan, column metadata)
 
 ## Explaining a Node's Logic
 
@@ -247,10 +269,6 @@ Use `ddag_core.set_output_description()` for all outputs. Use `ddag_core.set_col
 User accepts all, edits specific items, or rejects.
 
 **Skip review** if outputs rebuild with same schema/appearance and existing descriptions are accurate.
-
-### DAG-wide Audit
-
-Check consistency across the entire DAG — verifying that each node's transform plan, code, and metadata tell a consistent story. See `references/workflows.md` § DAG-wide Audit for the full procedure including how to spawn `node-auditor` agents in parallel.
 
 ## Modifying Existing Nodes
 
