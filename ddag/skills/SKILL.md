@@ -103,8 +103,8 @@ ddag_build.file_context(file_path, root_dir)              # → dict (see keys b
 ddag_build.find_connected_components(edges)    # → list of node-path sets (subgraphs)
 
 # Diagram
-ddag_build.generate_mermaid(nodes, edges)      # → mermaid source string
-ddag_build.render_diagram(root_dir, output_path)  # → PNG path
+ddag_build.generate_dot(nodes, edges)            # → Graphviz DOT source string
+ddag_build.render_diagram(root_dir, output_path)  # → PNG path (requires dot)
 
 # Build script round-trip
 ddag_build.parse_build_script(script_path)                        # → {node_path: function_body} (inspect without updating)
@@ -175,7 +175,7 @@ For the full SQLite schema, see `references/schema.md`.
 
 ### `/ddag diagram`
 
-Run `diagram` (`python $CLI diagram $ROOT -o diagram.png`). Display the resulting PNG. If `mmdc` is not installed, show the `.mmd` source as a code block instead.
+Run `diagram` (`python $CLI diagram $ROOT -o diagram.png`). Display the resulting PNG. If `dot` is not installed, show the `.dot` source as a code block and tell the user to install Graphviz (`brew install graphviz`).
 
 ### "Build the pipeline file" / "Build the execution script"
 

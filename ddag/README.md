@@ -23,13 +23,13 @@ When combined with the [viz](/viz) tool in this project, ddag provides a fully p
 - Each `.ddag` file is a self-contained SQLite database with 6 tables
 - All file paths are relative to the project root
 - Transform functions have imports inside the function body
-- Build scripts and Mermaid diagrams can be generated from the DAG
+- Build scripts and Graphviz diagrams can be generated from the DAG
 
 ## Dependencies
 
 - Python 3.10+
 - polars (preferred) or pandas for data operations
-- Optional: `mmdc` (mermaid-cli) for diagram rendering
+- Optional: `dot` (Graphviz) for diagram rendering — install with `brew install graphviz`
 
 ## Installation
 

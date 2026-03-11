@@ -737,28 +737,32 @@ def _read_actual_columns(file_path):
 
 
 
-def generate_mermaid(nodes, edges):
-    """Generate Mermaid flowchart source for the DAG."""
-    lines = ["graph LR"]
-    # Define node shapes: source nodes are cylinders, compute nodes are rectangles
+def generate_dot(nodes, edges):
+    """Generate Graphviz DOT source for the DAG."""
+    lines = [
+        "digraph ddag {",
+        "    rankdir=LR;",
+        '    node [fontname="Helvetica", fontsize=10];',
+        '    edge [color="#666666"];',
+    ]
     node_ids = {}
     for i, node_path in enumerate(nodes):
         nid = f"n{i}"
         node_ids[node_path] = nid
         label = Path(node_path).stem
         if nodes[node_path]["is_source_node"]:
-            lines.append(f"    {nid}[({label})]")  # cylinder shape
+            lines.append(f'    {nid} [label="{label}", shape=cylinder, style=filled, fillcolor="#e8f4f8"];')
         else:
-            lines.append(f"    {nid}[{label}]")
-    # Draw edges
+            lines.append(f'    {nid} [label="{label}", shape=box, style="filled,rounded", fillcolor="#f0f0f0"];')
     for node_path, deps in edges.items():
         for dep in deps:
-            lines.append(f"    {node_ids[dep]} --> {node_ids[node_path]}")
+            lines.append(f"    {node_ids[dep]} -> {node_ids[node_path]};")
+    lines.append("}")
     return "\n".join(lines)
 
 
 def render_diagram(root_dir=".", output_path=None):
-    """Generate a Mermaid DAG diagram and render to PNG via mmdc.
+    """Generate a Graphviz DAG diagram and render to PNG via dot.
 
     Returns the output PNG path.
     """
@@ -768,31 +772,35 @@ def render_diagram(root_dir=".", output_path=None):
         print("No .ddag nodes found.")
         return None
     edges, _ = build_dag(nodes)
-    mmd_content = generate_mermaid(nodes, edges)
+    dot_content = generate_dot(nodes, edges)
 
     if output_path is None:
         output_path = str(Path(root_dir) / "_ddag_diagram.png")
 
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".mmd", delete=False) as f:
-        f.write(mmd_content)
-        mmd_path = f.name
+    with tempfile.NamedTemporaryFile(mode="w", suffix=".dot", delete=False) as f:
+        f.write(dot_content)
+        dot_path = f.name
+
+    # Determine output format from extension
+    ext = Path(output_path).suffix.lstrip(".").lower()
+    fmt = ext if ext in ("png", "svg", "pdf") else "png"
 
     try:
         subprocess.run(
-            ["mmdc", "-i", mmd_path, "-o", output_path, "-b", "transparent"],
+            ["dot", f"-T{fmt}", dot_path, "-o", output_path],
             check=True, capture_output=True, text=True,
         )
         print(f"Diagram saved to {output_path}")
         return output_path
     except FileNotFoundError:
-        print("Error: mmdc not found. Install with: npm install -g @mermaid-js/mermaid-cli")
-        # Still save the .mmd source as fallback
-        mmd_out = str(Path(output_path).with_suffix(".mmd"))
-        Path(mmd_out).write_text(mmd_content)
-        print(f"Mermaid source saved to {mmd_out}")
-        return mmd_out
+        print("Error: dot (Graphviz) not found. Install with: brew install graphviz")
+        # Still save the .dot source as fallback
+        dot_out = str(Path(output_path).with_suffix(".dot"))
+        Path(dot_out).write_text(dot_content)
+        print(f"DOT source saved to {dot_out}")
+        return dot_out
     finally:
-        Path(mmd_path).unlink(missing_ok=True)
+        Path(dot_path).unlink(missing_ok=True)
 
 
 if __name__ == "__main__":
@@ -809,7 +817,7 @@ commands:
   build         Build stale nodes and print sample output (--node for single node)
   audit         Check description coverage, schema drift, and cross-node consistency
   lineage       Show upstream/downstream lineage for a node (requires --node)
-  diagram       Render Mermaid DAG diagram to PNG (requires mmdc) or .mmd fallback
+  diagram       Render Graphviz DAG diagram to PNG (requires dot) or .dot fallback
   file-context  Look up a data file across all nodes as JSON (requires --file)
   summary       JSON overview: node count, pipeline count, per-pipeline breakdown
   dump-function Dump a node's transform function to a .py file (requires --node)

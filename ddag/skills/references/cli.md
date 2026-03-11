@@ -16,7 +16,7 @@ Run `--help` for full details on any command. Most commands have Python equivale
 | `summary` | JSON overview: node count, pipeline count, breakdown | |
 | `lineage` | Upstream/downstream lineage for a node | `--node <path>` (required) |
 | `file-context` | Look up a data file across all nodes (JSON) | `--file <path>` (required) |
-| `diagram` | Render Mermaid DAG diagram to PNG or .mmd fallback | `-o <path>` |
+| `diagram` | Render Graphviz DAG diagram to PNG or .dot fallback | `-o <path>` |
 | `dump-function` | Dump transform function to .py for external editing | `--node <path>` (required) |
 | `load-function` | Load edited transform function back into node | `--node <path>` (required), `--plan <text>` (required) |
 | `load-script` | *Disabled in CLI* — use Python API: `ddag_build.load_build_script(path, root, plans={...})` | |
