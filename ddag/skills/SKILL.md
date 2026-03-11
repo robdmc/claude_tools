@@ -33,6 +33,7 @@ description: >
 - Build or transform errors → `references/workflows.md` § Error Recovery
 - Need CLI flags beyond what's in the Quick Reference below → `references/cli.md`
 - SQLite table schema and staleness rules → `references/schema.md`
+- Inline commenting standards for transform code → `references/code-comments.md`
 
 ### Python API (REQUIRED for all node operations)
 
@@ -162,6 +163,23 @@ An audit has two steps — structural check via CLI, then LLM critique via node-
 4. **Present results:** Each agent returns `CONSISTENT` or `INCONSISTENT` with specific issues. Surface any inconsistencies to the user for resolution (fix code via `set_function` or fix metadata via `set_output_description`/`set_column_descriptions`).
 
 The CLI `audit` command alone only checks structural metadata (drift, missing descriptions). The node-auditor agent is what reviews plan-to-code consistency — **always spawn it**.
+
+### Comment Review
+
+**Trigger:** "check comments", "update comments", "improve comments", "review the comments", "comment this node", "add comments", or any semantically similar request about inline code commenting quality. May target a single node ("improve comments on X") or the whole pipeline.
+
+1. Read `references/code-comments.md` to load the commenting standards
+2. **Scope:**
+   - Single node specified → `show --node <path>` to get transform code and plan
+   - No node specified → run `summary` to get all compute nodes, then `show --node` each one
+3. For each node, evaluate comments against the guide:
+   - Add missing *why*-comments (business logic, edge cases, domain assumptions)
+   - Remove comments that just restate the code
+   - Add a transform header if the function is non-trivial and lacks one
+   - Add section comments for multi-step transforms
+4. Present the proposed changes per node — show the updated function body as a diff or side-by-side so the user can review
+5. On approval, update via `set_function()` with the existing `transform_plan` preserved (commenting changes don't alter the plan)
+6. Skip source nodes (no transform code)
 
 ### `/ddag <filename>` (with a file argument)
 
@@ -337,6 +355,8 @@ def transform(sources, params, outputs):
 ```
 
 **Rules:** All imports go inside the function body. Source/output dict keys are the file stem (e.g., `visits.csv` → `sources['visits']`). Prefer polars when no clear winner for data library.
+
+**Commenting:** Comment transform code per `references/code-comments.md` — explain *why* (business logic, edge cases, domain assumptions), skip comments that just restate the code. Read the reference before writing non-trivial transforms.
 
 **Visualization rules:** Always use `matplotlib.use("Agg")` for headless rendering and `plt.close()` instead of `plt.show()` — transforms run in build scripts without a display. If the `viz` skill is installed, you can reference its styling guide (`~/.claude/skills/viz/references/styling.md`) for publication-quality defaults (fonts, colors, layout). Otherwise, use matplotlib/seaborn defaults with sensible figure sizes.
 
