@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "skills" / "scri
 
 import ddag_core
 import ddag_build
+import ddag_marimo
 
 
 def setup_test_dir():
@@ -870,6 +871,233 @@ def test_force_stale_default(tmp):
     print("PASS")
 
 
+def test_marimo_generate_notebook(tmp):
+    """Test 30: Notebook generation produces valid Python with correct structure."""
+    print("Test 30: Marimo notebook generation...", end=" ")
+    function_body = '''def transform(sources, params, outputs):
+    import polars as pl
+    df = pl.read_csv(sources['visits'])
+    df = df.filter(pl.col('date') >= params['min_date'])
+    df.write_parquet(outputs['clean_visits'])
+'''
+    sources = {"visits": "data/visits.csv"}
+    outputs = {"clean_visits": "pipeline/clean_visits.parquet"}
+    params = {"min_date": "2023-01-01"}
+
+    content = ddag_marimo.generate_notebook(function_body, sources, outputs, params)
+
+    # Should be valid Python
+    compile(content, "<notebook>", "exec")
+
+    # Should contain the key structural elements
+    assert "import marimo" in content
+    assert "app = marimo.App()" in content
+    assert "@app.function" in content
+    assert "def transform(sources, params, outputs):" in content
+    assert "@app.cell" in content
+
+    # Dict values should appear
+    assert "'data/visits.csv'" in content
+    assert "'pipeline/clean_visits.parquet'" in content
+    assert "'2023-01-01'" in content
+
+    print("PASS")
+
+
+def test_marimo_source_node_rejection(tmp):
+    """Test 31: Marimo export rejects source nodes."""
+    print("Test 31: Marimo source node rejection...", end=" ")
+    visits_path = os.path.join(tmp, "visits.ddag")
+
+    try:
+        ddag_marimo.export_notebook(visits_path)
+        assert False, "Should have raised ValueError"
+    except ValueError as e:
+        assert "source node" in str(e)
+
+    print("PASS")
+
+
+def test_marimo_round_trip(tmp):
+    """Test 32: Export → modify notebook → import updates node."""
+    print("Test 32: Marimo round-trip...", end=" ")
+    node_path = os.path.join(tmp, "clean_visits.ddag")
+    original_meta = ddag_core.read_node(node_path)
+    original_body = original_meta["transform_function"]
+
+    # Export
+    old_cwd = os.getcwd()
+    os.chdir(tmp)
+    try:
+        nb_path = ddag_marimo.export_notebook(node_path, root=tmp)
+        assert nb_path == "clean_visits.ddag.nb.py"
+        assert os.path.exists(nb_path)
+
+        # Verify the notebook is valid Python
+        nb_content = open(nb_path).read()
+        compile(nb_content, nb_path, "exec")
+
+        # Modify the transform in the notebook (change min_date to start_date)
+        modified = nb_content.replace("min_date", "start_date")
+        with open(nb_path, "w") as f:
+            f.write(modified)
+
+        # Import back
+        _, changed = ddag_marimo.import_notebook(node_path, nb_path)
+        assert changed, "Should detect changes"
+
+        # Verify the node was updated
+        updated_meta = ddag_core.read_node(node_path)
+        assert "start_date" in updated_meta["transform_function"]
+        assert "min_date" not in updated_meta["transform_function"]
+
+        # Import again with no changes — should detect no change
+        _, changed2 = ddag_marimo.import_notebook(node_path, nb_path)
+        assert not changed2, "Should detect no changes on second import"
+
+        # Restore original
+        ddag_core.set_function(node_path, original_body,
+                               "Read visits.csv, filter rows where date >= min_date parameter, write to parquet.")
+        os.remove(nb_path)
+    finally:
+        os.chdir(old_cwd)
+
+    print("PASS")
+
+
+def test_marimo_output_file_naming(tmp):
+    """Test 33: Notebook output file uses <stem>.ddag.nb.py convention."""
+    print("Test 33: Marimo output file naming...", end=" ")
+    node_path = os.path.join(tmp, "clean_visits.ddag")
+
+    old_cwd = os.getcwd()
+    os.chdir(tmp)
+    try:
+        nb_path = ddag_marimo.export_notebook(node_path, root=tmp)
+        assert nb_path == "clean_visits.ddag.nb.py"
+        os.remove(nb_path)
+    finally:
+        os.chdir(old_cwd)
+
+    print("PASS")
+
+
+def test_marimo_extract_transform(tmp):
+    """Test 34: Extract transform from notebook AST."""
+    print("Test 34: Marimo extract transform...", end=" ")
+    # Create a minimal notebook file
+    notebook_content = '''\
+import marimo
+
+app = marimo.App()
+
+
+@app.cell
+def transform_cell():
+    def transform(sources, params, outputs):
+        import polars as pl
+        df = pl.read_csv(sources['visits'])
+        df.write_parquet(outputs['clean'])
+    return (transform,)
+
+
+if __name__ == "__main__":
+    app.run()
+'''
+    nb_file = os.path.join(tmp, "test_extract.nb.py")
+    with open(nb_file, "w") as f:
+        f.write(notebook_content)
+
+    result = ddag_marimo.extract_transform_from_notebook(nb_file)
+    assert result is not None
+    assert "import polars as pl" in result
+    assert "pl.read_csv" in result
+    # Returns body only (no def line) per @app.function extraction
+    assert "def transform(" not in result
+
+    os.remove(nb_file)
+    print("PASS")
+
+
+def test_marimo_check_fix_round_trip(tmp):
+    """Test 36: Export → marimo check --fix → edit → reimport."""
+    print("Test 36: Marimo check --fix round-trip...", end=" ")
+    import shutil as _shutil
+    marimo_bin = _shutil.which("marimo")
+    if not marimo_bin:
+        print("SKIP (marimo not installed)")
+        return
+
+    import subprocess
+    node_path = os.path.join(tmp, "clean_visits.ddag")
+    original_meta = ddag_core.read_node(node_path)
+    original_body = original_meta["transform_function"]
+
+    old_cwd = os.getcwd()
+    os.chdir(tmp)
+    try:
+        # Export
+        nb_path = ddag_marimo.export_notebook(node_path, root=tmp)
+        assert os.path.exists(nb_path)
+
+        # marimo check --fix (export_notebook already runs this, but verify it's clean)
+        result = subprocess.run(
+            [marimo_bin, "check", nb_path],
+            capture_output=True, text=True,
+        )
+        assert result.returncode == 0, f"marimo check failed after export: {result.stderr}"
+
+        # Edit the notebook: add a comment inside the transform
+        nb_content = open(nb_path).read()
+        modified = nb_content.replace(
+            "import polars as pl",
+            "import polars as pl\n    # Added by test edit",
+        )
+        assert modified != nb_content, "Edit should change content"
+        with open(nb_path, "w") as f:
+            f.write(modified)
+
+        # Run marimo check --fix on the edited notebook (as a user would)
+        result = subprocess.run(
+            [marimo_bin, "check", "--fix", nb_path],
+            capture_output=True, text=True,
+        )
+        # Re-read after fix (marimo may reformat)
+        fixed_content = open(nb_path).read()
+        assert "# Added by test edit" in fixed_content, "Edit should survive marimo check --fix"
+
+        # Import back
+        _, changed = ddag_marimo.import_notebook(node_path, nb_path)
+        assert changed, "Should detect changes after edit"
+
+        # Verify the node was updated with the comment
+        updated_meta = ddag_core.read_node(node_path)
+        assert "# Added by test edit" in updated_meta["transform_function"]
+
+        # Restore original
+        ddag_core.set_function(node_path, original_body,
+                               "Read visits.csv, filter rows where date >= min_date parameter, write to parquet.")
+        os.remove(nb_path)
+    finally:
+        os.chdir(old_cwd)
+
+    print("PASS")
+
+
+def test_marimo_empty_dicts(tmp):
+    """Test 35: Notebook generation handles empty dicts."""
+    print("Test 35: Marimo empty dicts...", end=" ")
+    function_body = '''def transform(sources, params, outputs):
+    pass
+'''
+    content = ddag_marimo.generate_notebook(function_body, {}, {}, {})
+    compile(content, "<notebook>", "exec")
+    assert "sources = {}" in content
+    assert "params = {}" in content
+    assert "outputs = {}" in content
+    print("PASS")
+
+
 def main():
     tmp = setup_test_dir()
     print(f"Test directory: {tmp}\n")
@@ -904,6 +1132,13 @@ def main():
         test_sourceless_compute_stale_yesterday(tmp)
         test_force_stale_default(tmp)
         test_transform_plan_required(tmp)
+        test_marimo_generate_notebook(tmp)
+        test_marimo_source_node_rejection(tmp)
+        test_marimo_round_trip(tmp)
+        test_marimo_output_file_naming(tmp)
+        test_marimo_extract_transform(tmp)
+        test_marimo_empty_dicts(tmp)
+        test_marimo_check_fix_round_trip(tmp)
         print("\nAll tests passed!")
     finally:
         shutil.rmtree(tmp)

@@ -418,6 +418,35 @@ python {SKILL_DIR}/scripts/ddag_build.py build --node <node_path> --root .
 - Previous session files in `.ddag_work/`: warns and cleans up before proceeding
 - `load_function` failure: temp files are preserved so the user can retry
 
+## Marimo Notebook Export
+
+Export a node's transform function to a Marimo notebook for interactive experimentation, then import changes back.
+
+**Trigger:** "open in marimo", "marimo notebook", "export to marimo", "experiment interactively", or semantically similar requests for interactive notebook editing.
+
+**Export:**
+
+```python
+subprocess.run([sys.executable, '{SKILL_DIR}/scripts/ddag_marimo.py', node_path, '--root', '.'])
+```
+
+Creates `<stem>.ddag.nb.py` in the working directory with three cells: imports, transform function, and a run cell pre-populated with the node's sources/params/outputs dicts. On first export, fetches marimo docs to `.claude/prompts/marimo.md` in the working project.
+
+After export, tell the user to run `marimo edit <stem>.ddag.nb.py` to open the notebook.
+
+**Import (after user edits):**
+
+```python
+subprocess.run([sys.executable, '{SKILL_DIR}/scripts/ddag_marimo.py', node_path, '--import', '--root', '.'])
+```
+
+Only the `def transform(sources, params, outputs)` function is extracted from the notebook — all other cells are ignored. The existing `transform_plan` is preserved; the user/agent updates it separately if needed. After import, build the node to execute the updated transform.
+
+**Edge cases:**
+- Source nodes: rejected with error (no transform to export)
+- Existing notebook on export: overwritten with warning
+- No changes detected on import: skipped with message
+
 ## Anti-patterns
 
 - **Never write output/column descriptions without user review** — always present proposals first

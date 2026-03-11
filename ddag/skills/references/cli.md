@@ -23,6 +23,15 @@ Run `--help` for full details on any command. Use the CLI for inspection and inf
 | `load-script` | *Disabled in CLI* — use Python API: `ddag_build.load_build_script(path, root, plans={...})` | |
 | `clean` | Delete all compute node output files (interactive confirmation) | `--yes` / `-y` to skip prompt |
 
+### Marimo Notebook Commands
+
+Separate script: `python {SKILL_DIR}/scripts/ddag_marimo.py`
+
+| Command | Purpose | Key flags |
+|---------|---------|-----------|
+| `ddag_marimo.py <ddag_path>` | Export node to Marimo notebook (`<stem>.ddag.nb.py`) | `--root <dir>` |
+| `ddag_marimo.py <ddag_path> --import` | Import transform from notebook back into node | `--notebook <path>`, `--root <dir>` |
+
 ## JSON Output Schemas
 
 ### `show --node <path>`
@@ -188,6 +197,16 @@ python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .
 ```bash
 # Delete all compute outputs (prompts for confirmation)
 python {SKILL_DIR}/scripts/ddag_build.py clean --root .
+```
+
+```bash
+# Export a node to a Marimo notebook for interactive editing
+python {SKILL_DIR}/scripts/ddag_marimo.py path/to/node.ddag --root .
+# ... user runs: marimo edit node.ddag.nb.py ...
+# Import changes back
+python {SKILL_DIR}/scripts/ddag_marimo.py path/to/node.ddag --import --root .
+# Build the updated node
+python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .
 ```
 
 If any CLI command fails (non-zero exit or traceback), show the error to the user and investigate before continuing.
