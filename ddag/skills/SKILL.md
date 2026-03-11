@@ -44,6 +44,10 @@ import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); import ddag_core; import 
 
 For read-only inspection, prefer CLI commands (see CLI Quick Reference below).
 
+### Important Routing Rule
+
+**When the user expresses any intent to view, inspect, review, or edit a node's transform code — ALWAYS invoke the External Code Editor flow** (opens vim in iTerm2). Do NOT dump the code inline in the conversation or use `dump-function` to display it. The user wants hands-on access in their editor, not a read-only display in chat. Match semantically, not literally — "let me see the code", "can I look at the code", "show me the transform", "pull up the code", "I want to check the implementation" all mean the same thing. See the "External Code Editor" section below for invocation details.
+
 ### CLI Quick Reference
 
 ```bash
@@ -367,7 +371,7 @@ For common errors (ImportError, database locked, staleness detection issues, dup
 
 Open a node's transform code in vim in a new iTerm2 window for hands-on editing, review, and commit — without going through the conversation.
 
-**Trigger phrases:** "edit the code", "see the code", "review the code", "open in editor", "open in vim", "let me edit it"
+**Trigger:** Any user intent to view, inspect, review, or edit a node's transform code. Match semantically — don't require exact phrases. Examples include "see the code", "show me the code", "let me look at the implementation", "can I review this", "pull up the transform", "open in editor", "open in vim", etc. When in doubt, prefer opening the editor over dumping code inline.
 
 **Invocation:**
 
