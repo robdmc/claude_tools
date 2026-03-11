@@ -386,25 +386,28 @@ def update_output_stats_after_build(node_path, root_dir="."):
         ddag_core.update_output_stats(full_path, out["path"], row_count, col_count)
 
 
-def build_nodes(root_dir=".", node_filter=None, sample_rows=5):
+def build_nodes(root_dir=".", node_filter=None, sample_rows=5, quiet=False):
     """Build stale nodes and print sample output.
 
     Args:
         root_dir: Project root directory.
         node_filter: Optional single node path to build (just that node).
         sample_rows: Number of rows to print per output (0 to skip). Default 5.
+        quiet: Suppress all stdout output (for JSON mode). Default False.
 
     Returns list of built node paths.
     """
     nodes = scan_nodes(root_dir)
     if not nodes:
-        print("No active nodes found.")
+        if not quiet:
+            print("No active nodes found.")
         return []
 
     conflicts = check_output_conflicts(nodes)
     if conflicts:
-        for path, owners in conflicts:
-            print(f"CONFLICT: {path} claimed by: {', '.join(owners)}")
+        if not quiet:
+            for path, owners in conflicts:
+                print(f"CONFLICT: {path} claimed by: {', '.join(owners)}")
         raise ValueError("Resolve output conflicts before building.")
 
     edges, _ = build_dag(nodes)
@@ -421,16 +424,19 @@ def build_nodes(root_dir=".", node_filter=None, sample_rows=5):
         upstream_stale = [n for n in stale if n != node_filter and n in
                           set(_all_upstream(node_filter, edges))]
         if upstream_stale:
-            print(f"Upstream stale: {', '.join(upstream_stale)} — building them first.")
+            if not quiet:
+                print(f"Upstream stale: {', '.join(upstream_stale)} — building them first.")
             stale = upstream_stale + ([node_filter] if node_filter in stale or upstream_stale else [node_filter])
         elif node_filter in stale:
             stale = [node_filter]
         else:
-            print(f"{node_filter} is up to date.")
+            if not quiet:
+                print(f"{node_filter} is up to date.")
             return []
 
     if not stale:
-        print("Nothing to build.")
+        if not quiet:
+            print("Nothing to build.")
         return []
 
     # Generate and execute
@@ -442,7 +448,7 @@ def build_nodes(root_dir=".", node_filter=None, sample_rows=5):
     root = Path(root_dir)
     for node_path in stale:
         update_output_stats_after_build(node_path, root_dir)
-        if sample_rows > 0:
+        if sample_rows > 0 and not quiet:
             meta = ddag_core.read_node(str(root / node_path))
             for out in meta["outputs"]:
                 _print_sample(str(root / out["path"]), sample_rows, node_path, out["path"])
@@ -872,6 +878,7 @@ examples:
   %(prog)s script --root . > _ddag_build.py
   %(prog)s build --root .
   %(prog)s build --node pipeline/clean.ddag --root .
+  %(prog)s show --node pipeline/clean.ddag --root .
   %(prog)s audit --root .
   %(prog)s lineage --node pipeline/clean.ddag --root .
   %(prog)s diagram --root . -o pipeline.png
@@ -881,19 +888,20 @@ examples:
   %(prog)s load-function --node pipeline/clean.ddag --root .
   %(prog)s load-script --file _ddag_build.py --root .""",
     )
-    parser.add_argument("command", choices=["status", "stale", "script", "build", "audit", "lineage", "diagram", "file-context", "summary", "dump-function", "load-function", "load-script", "clean"])
+    parser.add_argument("command", choices=["status", "stale", "script", "build", "audit", "lineage", "diagram", "file-context", "summary", "show", "dump-function", "load-function", "load-script", "clean"])
     parser.add_argument("--root", default=".", help="Project root directory (default: .)")
-    parser.add_argument("--node", help="Node .ddag path, relative to root (for lineage)")
+    parser.add_argument("--node", help="Node .ddag path, relative to root (for lineage, show, build)")
     parser.add_argument("--file", help="Data file path, relative to root (for file-context)")
     parser.add_argument("--output", "-o", help="Output file path (for diagram, default: _ddag_diagram.png)")
     parser.add_argument("--all", action="store_true", help="Include all compute nodes, not just stale (for script)")
     parser.add_argument("-y", "--yes", action="store_true", help="Skip confirmation prompts (for clean)")
     parser.add_argument("--plan", help="Transform plan text (for load-function)")
+    parser.add_argument("--include-inactive", action="store_true", help="Include inactive nodes (for status, summary)")
+    parser.add_argument("--json", action="store_true", dest="json_output", help="Output as JSON (for stale, build, audit)")
     args = parser.parse_args()
 
     if args.command == "status":
         nodes = scan_nodes(args.root)
-        inactive = scan_nodes(args.root, include_inactive=True)
         edges, _ = build_dag(nodes)
         cycle = detect_cycle(edges)
         if cycle:
@@ -904,11 +912,12 @@ examples:
             stale_flag = " [STALE]" if is_stale(n, nodes, edges) else ""
             node_type = "source" if nodes[n]["is_source_node"] else "compute"
             print(f"  {n} ({node_type}){stale_flag}")
-        # Show inactive nodes
-        inactive_only = {k: v for k, v in inactive.items() if not v.get("is_active", True)}
-        for n, meta in inactive_only.items():
-            node_type = "source" if meta["is_source_node"] else "compute"
-            print(f"  {n} ({node_type}) [INACTIVE]")
+        if args.include_inactive:
+            inactive = scan_nodes(args.root, include_inactive=True)
+            inactive_only = {k: v for k, v in inactive.items() if not v.get("is_active", True)}
+            for n, meta in inactive_only.items():
+                node_type = "source" if meta["is_source_node"] else "compute"
+                print(f"  {n} ({node_type}) [INACTIVE]")
 
     elif args.command == "stale":
         try:
@@ -916,8 +925,12 @@ examples:
         except ValueError as e:
             print(f"ERROR: {e}")
             sys.exit(1)
-        for n in stale:
-            print(n)
+        if args.json_output:
+            import json
+            print(json.dumps(stale, indent=2))
+        else:
+            for n in stale:
+                print(n)
 
     elif args.command == "script":
         nodes = scan_nodes(args.root)
@@ -936,30 +949,42 @@ examples:
 
     elif args.command == "build":
         try:
-            built = build_nodes(args.root, node_filter=args.node, sample_rows=5)
-            if built:
-                print(f"\nBuilt {len(built)} node(s): {', '.join(built)}")
+            if args.json_output:
+                built = build_nodes(args.root, node_filter=args.node, sample_rows=0, quiet=True)
+                import json
+                print(json.dumps({"built": built, "count": len(built)}, indent=2))
+            else:
+                built = build_nodes(args.root, node_filter=args.node, sample_rows=5)
+                if built:
+                    print(f"\nBuilt {len(built)} node(s): {', '.join(built)}")
         except ValueError as e:
-            print(f"ERROR: {e}")
+            if args.json_output:
+                import json
+                print(json.dumps({"error": str(e)}, indent=2))
+            else:
+                print(f"ERROR: {e}")
             sys.exit(1)
 
     elif args.command == "audit":
         import json
         result = audit_node(args.node, args.root) if args.node else audit_descriptions(args.root)
-        if result["drift"]:
-            print(f"Schema drift ({len(result['drift'])}):")
-            for d in result["drift"]:
-                parts = []
-                if d["added"]:
-                    parts.append(f"new: {', '.join(d['added'])}")
-                if d["removed"]:
-                    parts.append(f"gone: {', '.join(d['removed'])}")
-                print(f"  {d['node']} → {d['output']}: {'; '.join(parts)}")
-            print()
-        if result["review_packets"]:
-            print(json.dumps(result["review_packets"], indent=2))
+        if args.json_output:
+            print(json.dumps(result, indent=2, default=str))
         else:
-            print("No compute nodes to review.")
+            if result["drift"]:
+                print(f"Schema drift ({len(result['drift'])}):")
+                for d in result["drift"]:
+                    parts = []
+                    if d["added"]:
+                        parts.append(f"new: {', '.join(d['added'])}")
+                    if d["removed"]:
+                        parts.append(f"gone: {', '.join(d['removed'])}")
+                    print(f"  {d['node']} → {d['output']}: {'; '.join(parts)}")
+                print()
+            if result["review_packets"]:
+                print(json.dumps(result["review_packets"], indent=2))
+            else:
+                print("No compute nodes to review.")
 
     elif args.command == "lineage":
         if not args.node:
@@ -1015,7 +1040,7 @@ examples:
         import json
         nodes = scan_nodes(args.root)
         if not nodes:
-            print(json.dumps({"node_count": 0, "pipelines": []}, indent=2))
+            result = {"node_count": 0, "pipelines": []}
         else:
             edges, _ = build_dag(nodes)
             cycle = detect_cycle(edges)
@@ -1046,7 +1071,26 @@ examples:
                 "cycle": cycle,
                 "pipelines": pipelines,
             }
-            print(json.dumps(result, indent=2, default=str))
+
+        if args.include_inactive:
+            all_nodes = scan_nodes(args.root, include_inactive=True)
+            inactive_only = {k: v for k, v in all_nodes.items() if not v.get("is_active", True)}
+            result["inactive_count"] = len(inactive_only)
+            result["inactive_nodes"] = {k: v["description"] for k, v in inactive_only.items()}
+
+        print(json.dumps(result, indent=2, default=str))
+
+    elif args.command == "show":
+        if not args.node:
+            print("ERROR: --node is required for show command")
+            sys.exit(1)
+        import json
+        node_path = str(Path(args.root) / args.node)
+        meta = ddag_core.read_node(node_path)
+        meta["sources_dict"] = ddag_core.get_sources_dict(node_path)
+        meta["outputs_dict"] = ddag_core.get_outputs_dict(node_path)
+        meta["params_dict"] = ddag_core.get_params_dict(node_path)
+        print(json.dumps(meta, indent=2, default=str))
 
     elif args.command == "dump-function":
         if not args.node:

@@ -25,9 +25,8 @@ description: >
 
 `{SKILL_DIR}` is automatically resolved at runtime to this skill's installation directory.
 
-**CLI vs Python API:** Both cover DAG-wide operations. Use the CLI for user-facing output (status tables, diagrams). Use the Python API when you need structured return values or are composing multiple operations in code.
-
 **When to consult reference files:**
+- Python API function signatures → `references/python-api.md`
 - Branching, cloning, or deactivating nodes → `references/workflows.md` § Branching
 - Converting a Python script to a node → `references/workflows.md` § Script Conversion
 - Build-script generation, edit-and-sync-back workflow → `references/workflows.md` § Build Script Workflow
@@ -35,87 +34,15 @@ description: >
 - Need CLI flags beyond what's in the Quick Reference below → `references/cli.md`
 - SQLite table schema and staleness rules → `references/schema.md`
 
-### Python API Quick Reference
+### Python API (REQUIRED for all node operations)
 
 ```python
 import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); import ddag_core; import ddag_build
-
-# --- ddag_core: Node CRUD ---
-
-# Creation
-ddag_core.create_compute_node(ddag_path, description, source_paths, output_paths, function_body, transform_plan, params=None)
-ddag_core.create_source_node(ddag_path, description, output_paths)
-
-# Inspection
-ddag_core.read_node(ddag_path)                        # → dict (see keys below)
-#   Keys: description, is_active, branched_from, force_stale, sources (list of paths),
-#   parameters (list of dicts), transform_function (str|None), transform_plan (str|None),
-#   updated_at, outputs (list of {path, description, row_count, col_count, built_at}),
-#   output_columns ({output_path: [{name, description}]}), is_source_node (bool)
-ddag_core.get_sources_dict(ddag_path)                  # → {stem: path}
-ddag_core.get_outputs_dict(ddag_path)                  # → {stem: path}
-ddag_core.get_params_dict(ddag_path)                   # → {name: typed_value}
-ddag_core.get_transform_plan(ddag_path)                  # → str or None
-ddag_core.is_active(ddag_path)                         # → bool
-
-# Modification
-ddag_core.set_function(ddag_path, function_body, transform_plan)
-ddag_core.update_output_stats(ddag_path, output_path, row_count, col_count)
-ddag_core.set_output_description(ddag_path, output_path, description)
-ddag_core.set_column_descriptions(ddag_path, output_path, {col_name: description})
-ddag_core.remove_source(ddag_path, source_path)
-ddag_core.remove_output(ddag_path, output_path)
-
-# Branching & activation
-ddag_core.clone_node(src_path, dest_path)       # clone with branched_from tracking
-ddag_core.deactivate_node(ddag_path)             # exclude from DAG
-ddag_core.activate_node(ddag_path)               # re-include in DAG
-
-# Force staleness
-ddag_core.set_force_stale(ddag_path)             # force rebuild on next build
-ddag_core.clear_force_stale(ddag_path)           # resume normal staleness rules
-
-# External editing round-trip
-ddag_core.dump_function(ddag_path, output_path=None)              # → _ddag_{stem}.py
-ddag_core.load_function(ddag_path, transform_plan, input_path=None)  # load edited .py back (plan required)
-
-# --- ddag_build: DAG-wide operations ---
-
-nodes = ddag_build.scan_nodes(root_dir)                           # scan active .ddag files → dict
-nodes = ddag_build.scan_nodes(root_dir, include_inactive=True)    # scan ALL .ddag files (active + inactive)
-edges, output_to_node = ddag_build.build_dag(nodes)               # discover DAG edges
-conflicts = ddag_build.check_output_conflicts(nodes)              # → [(output_path, [node_paths])] or []
-stale = ddag_build.find_stale_nodes(root_dir)                     # stale nodes in build order
-all_compute = ddag_build.find_all_compute_nodes(root_dir)         # all compute nodes in build order
-script = ddag_build.generate_build_script(stale, nodes, root_dir) # → Python script string
-built = ddag_build.build_nodes(root_dir, node_filter=None, sample_rows=5)  # build stale, update stats, print samples → [node_paths]
-ddag_build.update_output_stats_after_build(node_path, root_dir)   # update stats post-build
-
-# Lineage & lookups
-ddag_build.trace_lineage(node_path, edges, 'up'|'down')  # → list of ancestor/descendant paths
-ddag_build.find_node_for_file(file_path, nodes)           # → node_path or None
-ddag_build.find_consumers(file_path, nodes)               # → list of consuming node paths
-ddag_build.file_context(file_path, root_dir)              # → dict (see keys below)
-#   Keys: found (bool), file_path, producer (node_path|None), producer_meta (read_node dict|None),
-#   consumers ([node_paths]), consumer_metas ([read_node dicts]), lineage_up ([node_paths]),
-#   lineage_down ([node_paths]), stale (bool|None)
-
-# Structure
-ddag_build.find_connected_components(edges)    # → list of node-path sets (subgraphs)
-
-# Diagram
-ddag_build.generate_dot(nodes, edges)            # → Graphviz DOT source string
-ddag_build.render_diagram(root_dir, output_path)  # → PNG path (requires dot)
-
-# Build script round-trip
-ddag_build.parse_build_script(script_path)                        # → {node_path: function_body} (inspect without updating)
-ddag_build.load_build_script(script_path, root_dir, plans={node: plan})  # → [(node_path, changed)] (plans required for changed nodes)
-
-# Audit
-result = ddag_build.audit_descriptions(root_dir)  # → {"drift": [...], "review_packets": [...]}
-result = ddag_build.audit_node(node_path, root_dir)  # → same structure, scoped to one node
-# Each review_packet: {node, description, inputs, transform, transform_plan, parameters, outputs, drift}
 ```
+
+**NEVER manipulate .ddag SQLite files directly — no raw SQL, no sqlite3 CLI, no direct file access.** All node creation, modification, branching, and metadata updates MUST go through the Python API. Before making any API call, read `references/python-api.md` for exact function signatures — do not rely on memory for parameter names or order. If unsure how to execute a task involving .ddag nodes, consult the Python API reference first — the function you need likely already exists.
+
+For read-only inspection, prefer CLI commands (see CLI Quick Reference below).
 
 ### CLI Quick Reference
 
@@ -125,14 +52,19 @@ ROOT="--root ."
 
 # DAG-wide
 python $CLI summary $ROOT
+python $CLI summary --include-inactive $ROOT
 python $CLI status $ROOT
+python $CLI status --include-inactive $ROOT
 python $CLI stale $ROOT
 python $CLI build $ROOT
 python $CLI audit $ROOT
 python $CLI audit --node path/to/node.ddag $ROOT   # single-node audit
 python $CLI diagram $ROOT -o diagram.png
 
-# Per-node
+# Per-node inspection
+python $CLI show --node path/to/node.ddag $ROOT    # full node metadata as JSON
+
+# Per-node operations
 python $CLI build --node path/to/node.ddag $ROOT
 python $CLI lineage --node path/to/node.ddag $ROOT
 python $CLI dump-function --node path/to/node.ddag $ROOT
@@ -140,6 +72,14 @@ python $CLI load-function --node path/to/node.ddag --plan "Updated plan text" $R
 
 # File lookup
 python $CLI file-context --file path/to/data.parquet $ROOT
+
+# JSON output (for programmatic use)
+python $CLI stale --json $ROOT
+python $CLI build --json $ROOT
+python $CLI audit --json $ROOT
+
+# Build script generation
+python $CLI script $ROOT > _ddag_build.py
 
 # Cleanup
 python $CLI clean $ROOT --yes   # Delete all compute node outputs (use --yes to skip interactive prompt)
@@ -162,7 +102,7 @@ For the full SQLite schema, see `references/schema.md`.
 ### Bare `/ddag` (no arguments)
 
 1. Run `summary` (`python $CLI summary $ROOT`)
-2. Scan for inactive nodes: `summary` only returns active nodes. Call `ddag_build.scan_nodes(root_dir, include_inactive=True)` and filter for nodes where `is_active` is False. Any inactive nodes should appear in the node table with status `INACTIVE` (appended after the active nodes).
+2. Scan for inactive nodes: run `python $CLI summary --include-inactive $ROOT` to include inactive nodes in the JSON output. Any inactive nodes should appear in the node table with status `INACTIVE` (appended after the active nodes).
 3. Branch on the result:
 
 **No nodes found** — Tell the user there's no pipeline yet. Ask how to start:
@@ -170,7 +110,7 @@ For the full SQLite schema, see `references/schema.md`.
 - Point at a script to convert into a node (`/ddag script.py`)
 - Describe a transform to create from scratch
 
-**One pipeline** (single connected DAG) — Call `ddag_core.get_outputs_dict(path)` for each node to get output file extensions (not included in `summary`). Present a node table in topological order with columns: Node, Type (source/compute), Output extension, Status (ok/STALE/INACTIVE), Description. Include inactive nodes at the bottom. Ask what the user wants to do next.
+**One pipeline** (single connected DAG) — Run `python $CLI show --node <path> $ROOT` for each node to get output file extensions from `outputs_dict` (not included in `summary`). Present a node table in topological order with columns: Node, Type (source/compute), Output extension, Status (ok/STALE/INACTIVE), Description. Include inactive nodes at the bottom. Ask what the user wants to do next.
 
 **Multiple pipelines** (disconnected subgraphs) — Show a pipeline summary (sources, compute, stale counts per subgraph), then a node table per pipeline. Ask which pipeline to work with.
 
@@ -220,16 +160,16 @@ Walk the user through converting a script into a compute node. See `references/w
 When dropped into a project with existing .ddag files:
 
 1. Run `status` (`python $CLI status $ROOT`) to list all nodes, their types, and staleness
-2. Use `ddag_core.read_node(path)` on key nodes to inspect metadata
+2. Use `python $CLI show --node <path> $ROOT` on key nodes to inspect metadata
 3. Run `stale` (`python $CLI stale $ROOT`) to see what needs rebuilding
 
 ## Explaining a Node's Logic
 
 When the user asks how a node works, what its logic is, what it does, or anything semantically similar — respond with three parts in this order:
 
-1. **Purpose** (1-2 sentences): Why this node exists — what job it does for the pipeline. Focus on the *why*, not the plumbing. Don't just say what feeds it or consumes it (the user can see that from the table); instead explain the analytical role it plays. Use `read_node()` metadata (description, sources, outputs, downstream consumers) to infer purpose.
+1. **Purpose** (1-2 sentences): Why this node exists — what job it does for the pipeline. Focus on the *why*, not the plumbing. Don't just say what feeds it or consumes it (the user can see that from the table); instead explain the analytical role it plays. Use `python $CLI show --node <path> $ROOT` metadata (description, sources, outputs, downstream consumers) to infer purpose.
 
-2. **Transform plan (verbatim)**: Present the node's `transform_plan` exactly as stored, word-for-word. Format it for readability (line breaks, bullet points) but **do not change, omit, or rephrase any content**. Do NOT use blockquote (`>`) formatting — it renders dimmed in terminals. Use regular markdown instead. This is the audited source of truth. Use `ddag_core.get_transform_plan(path)` to retrieve it.
+2. **Transform plan (verbatim)**: Present the node's `transform_plan` exactly as stored, word-for-word. Format it for readability (line breaks, bullet points) but **do not change, omit, or rephrase any content**. Do NOT use blockquote (`>`) formatting — it renders dimmed in terminals. Use regular markdown instead. This is the audited source of truth. The `show` command includes `transform_plan` in its JSON output.
 
 3. **In plain English** (2-4 short sentences): A casual rephrasing of the plan in simpler language. Keep sentences short and direct — no run-ons. This is clearly labeled as a summary and is secondary to the verbatim plan above.
 
@@ -336,7 +276,7 @@ The most common action: tweak a transform and see results.
 
 **In-conversation editing** (three-step loop):
 
-1. Read the current plan: `ddag_core.get_transform_plan(path)`
+1. Read the current plan: `python $CLI show --node <path> $ROOT` (the `transform_plan` field in the JSON output)
 2. Update the function and plan together: `ddag_core.set_function(path, new_body, updated_plan)` — revise the existing plan to reflect the code changes. **The updated plan must use the same structured bullet format as Checkpoint 1b** (Inputs/Steps/Edge cases/Output for data nodes; Inputs/Chart design/Styling/Output for viz nodes). If the existing plan is prose, reformat it into the structured format while incorporating the changes.
 3. `python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .`
 
@@ -393,8 +333,8 @@ python {SKILL_DIR}/scripts/ddag_build.py build --root .
 This finds stale nodes, executes transforms, updates output stats, and prints sample rows. Output stats (row_count, col_count) are auto-detected for CSV and Parquet files only. Visualization outputs (`.png`, `.svg`, `.pdf`) will not have stats — this is expected.
 
 **Manual alternative** (when you need the build script as a file):
-1. Run `script` to generate the build script
-2. Save as `_ddag_build.py` (ephemeral, gitignored) and execute
+1. Run `python $CLI script $ROOT > _ddag_build.py` to generate the build script
+2. Execute `_ddag_build.py` (ephemeral, gitignored)
 3. Update output stats with `ddag_build.update_output_stats_after_build()`
 
 **Incorporating edits from a build script:** If the user edited `_ddag_build.py`, use the edit-and-sync-back workflow (see `references/workflows.md` § Build Script Workflow) to parse changes and update nodes via the Python API. This is the one exception to the "never execute a transform to learn about the DAG" rule.

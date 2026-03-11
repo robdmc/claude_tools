@@ -2,18 +2,19 @@
 
 All commands: `python {SKILL_DIR}/scripts/ddag_build.py <command> --root .`
 
-Run `--help` for full details on any command. Most commands have Python equivalents in `ddag_build` (see the Quick Reference in SKILL.md) — prefer the Python API when you need structured return values.
+Run `--help` for full details on any command. Use the CLI for inspection and information gathering. For node mutations (create, modify, branch), use the Python API (`references/python-api.md`).
 
 ## Commands
 
 | Command | Purpose | Key flags |
 |---------|---------|-----------|
-| `status` | Show all nodes with type and staleness | |
-| `stale` | List stale nodes in build order | |
+| `status` | Show all nodes with type and staleness | `--include-inactive` |
+| `stale` | List stale nodes in build order | `--json` |
 | `script` | Generate Python build script for stale nodes | `--all` for all compute nodes |
-| `build` | Build stale nodes, update stats, print sample rows | `--node <path>` for single node |
-| `audit` | Check descriptions: missing, schema drift, shared columns | |
-| `summary` | JSON overview: node count, pipeline count, breakdown | |
+| `build` | Build stale nodes, update stats, print sample rows | `--node <path>` for single node, `--json` |
+| `audit` | Check descriptions: missing, schema drift, shared columns | `--node <path>`, `--json` |
+| `summary` | JSON overview: node count, pipeline count, breakdown | `--include-inactive` |
+| `show` | Full node metadata as JSON (read_node + dicts) | `--node <path>` (required) |
 | `lineage` | Upstream/downstream lineage for a node | `--node <path>` (required) |
 | `file-context` | Look up a data file across all nodes (JSON) | `--file <path>` (required) |
 | `diagram` | Render Graphviz DAG diagram to PNG or .dot fallback | `-o <path>` |
