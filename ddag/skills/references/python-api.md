@@ -8,6 +8,20 @@ import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); import ddag_core; import 
 # Creation
 ddag_core.create_compute_node(ddag_path, description, source_paths, output_paths, function_body, transform_plan, params=None)
 ddag_core.create_source_node(ddag_path, description, output_paths)
+# Example — use keyword args exactly as named above (ddag_path, not path):
+# ddag_core.create_compute_node(
+#     ddag_path='my_node.ddag',
+#     description='What this node does',
+#     source_paths=['input.parquet'],
+#     output_paths=['output.parquet'],
+#     function_body='def transform(sources, params, outputs):\n    ...',  # MUST start with def transform(...)
+#     transform_plan='...',
+#     params={                          # optional; each entry: {type, default, value, description}
+#         'min_date': {'type': 'str', 'default': '2023-01-01', 'value': '2023-01-01', 'description': 'Earliest date to include'},
+#     },
+# )
+# WARNING: uses ON CONFLICT DO NOTHING on sources/outputs — re-calling does NOT remove old entries.
+# To remove a source or output, call remove_source() / remove_output() explicitly.
 
 # Inspection
 ddag_core.read_node(ddag_path)                        # → dict (see keys below)
@@ -22,10 +36,10 @@ ddag_core.get_transform_plan(ddag_path)                  # → str or None
 ddag_core.is_active(ddag_path)                         # → bool
 
 # Modification
-ddag_core.set_function(ddag_path, function_body, transform_plan)
+ddag_core.set_function(ddag_path, function_body, transform_plan)  # function_body MUST start with def transform(...); validated at build time not here
 ddag_core.update_output_stats(ddag_path, output_path, row_count, col_count)
 ddag_core.set_output_description(ddag_path, output_path, description)
-ddag_core.set_column_descriptions(ddag_path, output_path, {col_name: description})
+ddag_core.set_column_descriptions(ddag_path, output_path, col_descriptions)  # col_descriptions = {'col_name': 'description', ...}
 ddag_core.remove_source(ddag_path, source_path)
 ddag_core.remove_output(ddag_path, output_path)
 
