@@ -1239,6 +1239,78 @@ def top_n(df, n):
     print("PASS")
 
 
+def test_module_change_makes_node_stale(tmp):
+    """Test 40: Changing a local module makes dependent nodes stale."""
+    print("Test 40: Module change staleness...", end=" ")
+    try:
+        import polars  # noqa: F401
+    except ImportError:
+        print("SKIP (polars not installed)")
+        return
+
+    # Create a local helper module
+    helper_path = os.path.join(tmp, "mod_helpers.py")
+    with open(helper_path, "w") as f:
+        f.write('def top_n(df, n):\n    return df.head(n)\n')
+
+    # Create a dedicated source CSV for this test
+    mod_csv = os.path.join(tmp, "mod_input.csv")
+    with open(mod_csv, "w") as f:
+        f.write("x\n1\n2\n3\n")
+
+    # Create source node with unique output
+    src_path = os.path.join(tmp, "mod_src.ddag")
+    ddag_core.create_source_node(src_path, "source for module test", ["mod_input.csv"])
+
+    # Create compute node that imports the helper
+    node_path = os.path.join(tmp, "uses_mod_helper.ddag")
+    ddag_core.create_compute_node(
+        node_path,
+        "Node using helper",
+        source_paths=["mod_input.csv"],
+        output_paths=["mod_helper_out.parquet"],
+        function_body='''def transform(sources, params, outputs):
+    from mod_helpers import top_n
+    import polars as pl
+    df = pl.read_csv(sources['mod_input'])
+    df = top_n(df, 2)
+    df.write_parquet(outputs['mod_helper_out'])
+''',
+        transform_plan="Use mod_helpers.top_n",
+    )
+
+    # Build the node
+    built = ddag_build.build_nodes(tmp, node_filter="uses_mod_helper.ddag")
+    assert "uses_mod_helper.ddag" in built
+
+    # Verify not stale immediately after build
+    nodes = ddag_build.scan_nodes(tmp)
+    edges, _ = ddag_build.build_dag(nodes)
+    assert not ddag_build.is_stale("uses_mod_helper.ddag", nodes, edges, root_dir=tmp), \
+        "Node should not be stale right after build"
+
+    # Now modify the helper module (sleep to ensure mtime differs)
+    import time
+    time.sleep(1.1)
+    with open(helper_path, "w") as f:
+        f.write('def top_n(df, n):\n    return df.head(n + 1)\n')
+
+    # Re-scan and check staleness
+    nodes = ddag_build.scan_nodes(tmp)
+    edges, _ = ddag_build.build_dag(nodes)
+    assert ddag_build.is_stale("uses_mod_helper.ddag", nodes, edges, root_dir=tmp), \
+        "Node should be stale after its local module was modified"
+
+    # Clean up
+    os.remove(node_path)
+    os.remove(src_path)
+    os.remove(mod_csv)
+    os.remove(os.path.join(tmp, "mod_helper_out.parquet"))
+    os.remove(helper_path)
+    sys.modules.pop("mod_helpers", None)
+    print("PASS")
+
+
 def test_marimo_empty_dicts(tmp):
     """Test 35: Notebook generation handles empty dicts."""
     print("Test 35: Marimo empty dicts...", end=" ")
@@ -1290,6 +1362,7 @@ def main():
         test_settings_no_file(tmp)
         test_settings_with_file(tmp)
         test_local_module_import(tmp)
+        test_module_change_makes_node_stale(tmp)
         test_marimo_generate_notebook(tmp)
         test_marimo_source_node_rejection(tmp)
         test_marimo_round_trip(tmp)

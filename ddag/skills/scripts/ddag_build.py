@@ -129,13 +129,52 @@ def _parse_iso(ts):
     return datetime.fromisoformat(ts)
 
 
-def is_stale(node_path, nodes, edges):
+def _get_local_module_paths(function_body, root_dir="."):
+    """Extract local module file paths from a transform's import statements.
+
+    Parses the function body with ast to find import/from-import statements,
+    then checks if they resolve to .py files under root_dir.
+
+    Returns list of Path objects for local modules the transform depends on.
+    """
+    import ast
+    if not function_body:
+        return []
+    try:
+        tree = ast.parse(function_body)
+    except SyntaxError:
+        return []
+    root = Path(root_dir).resolve()
+    module_names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                module_names.add(alias.name.split(".")[0])
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                module_names.add(node.module.split(".")[0])
+    paths = []
+    for name in module_names:
+        # Check for single-file module
+        candidate = root / f"{name}.py"
+        if candidate.exists():
+            paths.append(candidate)
+            continue
+        # Check for package
+        candidate = root / name / "__init__.py"
+        if candidate.exists():
+            paths.append(candidate)
+    return paths
+
+
+def is_stale(node_path, nodes, edges, root_dir="."):
     """Check if a node needs rebuilding.
 
     A node is stale if:
     - force_stale flag is set (any node type)
     - It has no built_at on any output
     - Its transform_function.updated_at > any output.built_at
+    - Any local module it imports has been modified since last build
     - Any upstream node's output.built_at > this node's output.built_at
     - It is a sourceless compute node and was last built before today
     """
@@ -164,6 +203,14 @@ def is_stale(node_path, nodes, edges):
     if fn_updated and fn_updated > earliest_built:
         return True
 
+    # Check if any local module dependency was modified after build
+    module_paths = _get_local_module_paths(meta["transform_function"], root_dir=root_dir)
+    for mod_path in module_paths:
+        mod_mtime = datetime.fromtimestamp(mod_path.stat().st_mtime).astimezone()
+        earliest_aware = earliest_built if earliest_built.tzinfo else earliest_built.astimezone()
+        if mod_mtime > earliest_aware:
+            return True
+
     # Sourceless compute nodes: stale if built before today
     if not meta["sources"] and not edges.get(node_path, []):
         today = datetime.now().date()
@@ -173,7 +220,7 @@ def is_stale(node_path, nodes, edges):
     # Check upstream: if upstream is stale, this node is too
     for upstream_path in edges.get(node_path, []):
         upstream_meta = nodes[upstream_path]
-        if is_stale(upstream_path, nodes, edges):
+        if is_stale(upstream_path, nodes, edges, root_dir=root_dir):
             return True
         for out in upstream_meta["outputs"]:
             upstream_built = _parse_iso(out["built_at"])
@@ -193,7 +240,7 @@ def find_stale_nodes(root_dir="."):
         raise ValueError(f"Cycle detected in DAG: {' -> '.join(cycle)}")
 
     order = topological_sort(edges)
-    return [n for n in order if is_stale(n, nodes, edges)]
+    return [n for n in order if is_stale(n, nodes, edges, root_dir=root_dir)]
 
 
 def find_all_compute_nodes(root_dir="."):
@@ -416,7 +463,7 @@ def build_nodes(root_dir=".", node_filter=None, sample_rows=5, quiet=False):
     if cycle:
         raise ValueError(f"Cycle detected: {' -> '.join(cycle)}")
 
-    stale = [n for n in topological_sort(edges) if is_stale(n, nodes, edges)]
+    stale = [n for n in topological_sort(edges) if is_stale(n, nodes, edges, root_dir=root_dir)]
 
     if node_filter:
         if node_filter not in nodes:
@@ -623,7 +670,7 @@ def file_context(file_path, root_dir="."):
         "consumer_metas": [nodes[c] for c in consumers],
         "lineage_up": trace_lineage(producer, edges, "up") if producer else [],
         "lineage_down": [],
-        "stale": is_stale(producer, nodes, edges) if producer else None,
+        "stale": is_stale(producer, nodes, edges, root_dir=root_dir) if producer else None,
     }
 
     # Collect downstream from all consumers
@@ -923,7 +970,7 @@ examples:
             sys.exit(1)
         order = topological_sort(edges)
         for n in order:
-            stale_flag = " [STALE]" if is_stale(n, nodes, edges) else ""
+            stale_flag = " [STALE]" if is_stale(n, nodes, edges, root_dir=args.root) else ""
             node_type = "source" if nodes[n]["is_source_node"] else "compute"
             print(f"  {n} ({node_type}){stale_flag}")
         if args.include_inactive:
