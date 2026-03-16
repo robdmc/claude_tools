@@ -101,6 +101,10 @@ uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/viz_runner.py --
 
 For publication-quality guidance — font sizes, figure sizes, colorblind-friendly palettes, and when to choose seaborn vs matplotlib — see **{SKILL_DIR}/references/styling.md**.
 
+### Branded Visualizations
+
+When the user says "branded", "on-brand", "brand colors", "brand style", "use brand palette", "company colors", or any semantically similar request — read **{SKILL_DIR}/references/branding.md** and apply it. This overrides the default color and font choices from `styling.md`. The branding guide includes font download/registration code, the full color palette with usage rules, and text styling conventions. The `branding.md` file is swappable — it contains no company name and can be replaced for different brand identities.
+
 ## Refinement
 
 To modify an existing plot, use the read-modify-overwrite pattern:
