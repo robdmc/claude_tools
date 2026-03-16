@@ -6,6 +6,7 @@
 - [Script Conversion](#script-conversion)
 - [Branching (Exploratory Workflows)](#branching-exploratory-workflows)
 - [DAG-wide Audit](#dag-wide-audit)
+- [Templating Transform Code](#templating-transform-code)
 - [Error Recovery](#error-recovery)
 
 ## Build Script Workflow
@@ -111,6 +112,27 @@ result = ddag_build.audit_descriptions('.')
 ```
 
 For small DAGs (1-3 compute nodes), running auditors sequentially is fine. For larger DAGs, always run in parallel.
+
+## Templating Transform Code
+
+When creating multiple nodes from a shared template (e.g., parallel analysis tracks that differ only in dataset name or chart title), **never use Python's `.format()` or f-strings** to interpolate values into transform function strings. Python dict literals and f-strings use `{` and `}` which collide with `.format()` delimiters, causing `KeyError` or broken string literals.
+
+**Do this:** Use `str.replace()` with UPPER_CASE placeholder tokens that can't collide with Python syntax:
+
+```python
+template = '''def transform(sources, params, outputs):
+    panel = pd.read_parquet(sources["PANEL_KEY"])
+    ax.set_title("CHART_TITLE")
+'''
+fn = template.replace('PANEL_KEY', 'did_panel_activated').replace('CHART_TITLE', 'My Title')
+```
+
+**Don't do this:**
+```python
+# BROKEN — .format() interprets { in dict literals as format placeholders
+template = '''results = {"att": round(float(att), 6)}'''
+fn = template.format(panel_key='did_panel_activated')  # KeyError: '"att"'
+```
 
 ## Error Recovery
 
