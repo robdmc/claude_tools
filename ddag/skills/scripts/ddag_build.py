@@ -747,6 +747,18 @@ def _build_review_packet(node_path, meta, nodes, edges):
             "columns": meta.get("output_columns", {}).get(out["path"], []),
         })
 
+    # Include project settings if the transform references them
+    project_settings = None
+    transform_code = meta.get("transform_function") or ""
+    if "ddag_settings" in transform_code:
+        # Walk up from the node to find ddag_settings.py
+        node_dir = Path(node_path).parent
+        for candidate in [node_dir, Path(".")]:
+            settings_path = candidate / "ddag_settings.py"
+            if settings_path.exists():
+                project_settings = settings_path.read_text()
+                break
+
     return {
         "node": node_path,
         "description": meta.get("description"),
@@ -754,6 +766,7 @@ def _build_review_packet(node_path, meta, nodes, edges):
         "transform": meta.get("transform_function"),
         "transform_plan": meta.get("transform_plan"),
         "parameters": meta.get("parameters", []),
+        "project_settings": project_settings,
         "outputs": outputs,
     }
 
