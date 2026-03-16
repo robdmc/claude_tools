@@ -1187,6 +1187,58 @@ settings = Settings()
     print("PASS")
 
 
+def test_local_module_import(tmp):
+    """Test 39: Transform can import a local Python module from the project root."""
+    print("Test 39: Local module import...", end=" ")
+    try:
+        import polars  # noqa: F401
+    except ImportError:
+        print("SKIP (polars not installed)")
+        return
+
+    # Create a local helper module in the project root
+    helper_path = os.path.join(tmp, "helpers.py")
+    with open(helper_path, "w") as f:
+        f.write('''\
+def top_n(df, n):
+    """Return the first n rows."""
+    return df.head(n)
+''')
+
+    # Create a node that imports the helper
+    ddag_path = os.path.join(tmp, "with_helper.ddag")
+    ddag_core.create_compute_node(
+        ddag_path,
+        "Node that uses a local helper module",
+        source_paths=["visits.csv"],
+        output_paths=["helper_out.parquet"],
+        function_body='''def transform(sources, params, outputs):
+    from helpers import top_n
+    import polars as pl
+    df = pl.read_csv(sources['visits'])
+    df = top_n(df, 2)
+    df.write_parquet(outputs['helper_out'])
+''',
+        transform_plan="Read visits.csv, use helpers.top_n to keep first 2 rows, write to parquet.",
+    )
+
+    # Build should succeed
+    built = ddag_build.build_nodes(tmp, node_filter="with_helper.ddag")
+    assert "with_helper.ddag" in built, "Node should have built successfully"
+
+    # Verify output: visits.csv has 5 rows, top_n(df, 2) should give 2
+    import polars as pl
+    df = pl.read_parquet(os.path.join(tmp, "helper_out.parquet"))
+    assert len(df) == 2, f"Expected 2 rows (top_n), got {len(df)}"
+
+    # Clean up
+    os.remove(ddag_path)
+    os.remove(os.path.join(tmp, "helper_out.parquet"))
+    os.remove(helper_path)
+    sys.modules.pop("helpers", None)
+    print("PASS")
+
+
 def test_marimo_empty_dicts(tmp):
     """Test 35: Notebook generation handles empty dicts."""
     print("Test 35: Marimo empty dicts...", end=" ")
@@ -1237,6 +1289,7 @@ def main():
         test_transform_plan_required(tmp)
         test_settings_no_file(tmp)
         test_settings_with_file(tmp)
+        test_local_module_import(tmp)
         test_marimo_generate_notebook(tmp)
         test_marimo_source_node_rejection(tmp)
         test_marimo_round_trip(tmp)

@@ -37,6 +37,7 @@ description: >
 - SQLite table schema and staleness rules → `references/schema.md`
 - Inline commenting standards for transform code → `references/code-comments.md`
 - Project-wide settings file (ddag_settings.py) → `references/settings.md`
+- Shared code, local modules, and DRY patterns → `references/shared-code.md`
 
 ### Python API (REQUIRED for all node operations)
 
@@ -147,7 +148,7 @@ The `--yes` flag skips the interactive confirmation prompt (required in non-inte
 
 **Trigger:** user says "audit", "audit <node>", "audit the pipeline", or semantically similar.
 
-An audit has two steps — structural check via CLI, then LLM critique via node-auditor agents. **Always do both.**
+An audit has three steps — structural check via CLI, LLM critique via node-auditor agents, and a DRY scan across transforms. **Always do all three.**
 
 1. **Get review packets:**
    - Single node: `python $CLI audit --node <path> $ROOT --json`
@@ -163,7 +164,9 @@ An audit has two steps — structural check via CLI, then LLM critique via node-
 
 3. **Run agents in parallel** for 4+ nodes. For 1–3 nodes, sequential is fine.
 
-4. **Present results:** Each agent returns `CONSISTENT` or `INCONSISTENT` with specific issues. Surface any inconsistencies to the user for resolution (fix code via `set_function` or fix metadata via `set_output_description`/`set_column_descriptions`).
+4. **DRY scan** (whole-DAG audits only): After collecting agent results, scan all transform code for duplicated logic, repeated hardcoded values, and similar patterns that could be extracted into shared modules or `ddag_settings.py`. See `references/shared-code.md` § DRY Audit for what to flag and how to present it.
+
+5. **Present results:** Each agent returns `CONSISTENT` or `INCONSISTENT` with specific issues. Surface any inconsistencies to the user for resolution (fix code via `set_function` or fix metadata via `set_output_description`/`set_column_descriptions`). Append DRY opportunities as a separate section after the per-node results.
 
 The CLI `audit` command alone only checks structural metadata (drift, missing descriptions). The node-auditor agent is what reviews plan-to-code consistency — **always spawn it**.
 
