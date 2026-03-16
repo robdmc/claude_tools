@@ -460,7 +460,7 @@ Quick reference — accessing settings in transform code:
 ```python
 def transform(sources, params, outputs):
     from ddag_settings import settings
-    # settings.min_cohort_size, settings.confidence_level, etc.
+    # settings.min_group_size, settings.confidence_level, etc.
 ```
 
 ## Anti-patterns

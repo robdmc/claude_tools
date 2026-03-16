@@ -48,8 +48,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Settings:
-    # Minimum cohort size for reportable results.
-    min_cohort_size: int = 30
+    # Minimum group size for reportable results.
+    min_group_size: int = 30
 
 settings = Settings()
 ```
@@ -165,8 +165,8 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Settings:
-    # Minimum cohort size for reportable results.
-    min_cohort_size: int = 30
+    # Minimum group size for reportable results.
+    min_group_size: int = 30
 
 settings = Settings()
 ```

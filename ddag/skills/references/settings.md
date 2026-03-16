@@ -17,12 +17,12 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Settings:
-    # Minimum number of patients in a cohort for results to be reportable.
-    # Below this threshold, statistical noise dominates and privacy risk increases.
-    min_cohort_size: int = 30
+    # Minimum group size for results to be reportable.
+    # Below this threshold, statistical noise dominates and small-sample bias increases.
+    min_group_size: int = 30
 
     # Confidence level for all confidence intervals and hypothesis tests.
-    # 0.95 is standard for clinical reporting; tighten to 0.99 for safety-critical outputs.
+    # 0.95 is standard for most reporting; tighten to 0.99 for high-stakes outputs.
     confidence_level: float = 0.95
 
 
@@ -47,7 +47,7 @@ This matches the rigor applied to node-local `params` (which carry name, type, v
 ```python
 def transform(sources, params, outputs):
     from ddag_settings import settings
-    # settings.min_cohort_size, settings.confidence_level, etc.
+    # settings.min_group_size, settings.confidence_level, etc.
 ```
 
 Settings are completely separate from node-local `params` — no namespace collisions. The frozen dataclass prevents accidental mutation. Since it's a regular Python file in the project directory, it works in the project's Python environment with no path manipulation.
