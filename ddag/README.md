@@ -2,6 +2,64 @@
 
 An LLM-driven alternative to notebooks for iterative data analysis. Each transformation step is a standalone `.ddag` node, and the DAG connecting them is discovered automatically. You evolve the pipeline through natural language prompts — adding nodes, rewiring dependencies, branching for experiments — without manually managing pipeline code or execution order.
 
+## Quick Start
+
+Every ddag pipeline starts by telling the LLM what data you have and what you want to produce. The LLM handles all node creation, wiring, and builds.
+
+### From a data file
+
+Point at a CSV or Parquet file to wrap it as a source node and start building transforms on top of it:
+
+```
+/ddag visits.csv
+```
+
+The LLM creates a source node documenting the file, then asks what you want to do with it. Describe your transform in plain English — "filter to visits after January, group by user, count visits per user" — and the LLM proposes a plan, writes the transform, builds it, and shows you sample output.
+
+### From other nodes
+
+Once you have nodes producing outputs, new nodes can consume them. Just describe what you need:
+
+> "Create a node that joins clean_visits with user_profiles and adds a tenure column"
+
+The LLM finds the upstream outputs, wires the sources automatically, and walks you through the same plan → code → build → review cycle.
+
+### From a database
+
+Nodes can query databases directly. The transform function runs arbitrary Python, so any database client works:
+
+```python
+def transform(sources, params, outputs):
+    import polars as pl
+    import duckdb
+    conn = duckdb.connect(params['db_path'])
+    df = pl.from_arrow(conn.execute(params['query']).fetch_arrow_table())
+    df.write_parquet(outputs['raw_events'])
+```
+
+These "sourceless" compute nodes have no upstream files — they pull fresh data on each build (auto-stale daily).
+
+### Shared settings
+
+When multiple nodes need the same parameters — thresholds, constants, study-wide configuration — put them in `ddag_settings.py` in the project root:
+
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Settings:
+    # Minimum cohort size for reportable results.
+    min_cohort_size: int = 30
+
+settings = Settings()
+```
+
+Any node can import it: `from ddag_settings import settings`. The frozen dataclass prevents accidental mutation. Just tell the LLM "this should be a global setting" and it will create or update the file.
+
+### Local Python modules
+
+The project root is on the Python path during builds, so you can create local modules for shared utilities — database connectors, custom validators, plotting helpers — and import them from any node's transform function. This keeps transforms focused on the "what" while reusable logic lives in normal Python files alongside the pipeline.
+
 ## How It Works
 
 Each `.ddag` file is a self-contained SQLite database storing metadata and a Python transform function (never data). Two node types:
