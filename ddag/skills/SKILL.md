@@ -16,7 +16,9 @@ description: >
   Triggers on: /ddag, /ddag diagram, /ddag <filename>, .ddag files, data
   pipeline, DAG node, data lineage, build pipeline, which node produces
   this file, data provenance, edit code, see the code, review code,
-  open in editor.
+  open in editor, pipeline settings, global parameters, global variables,
+  shared constants, project-wide settings, ddag_settings, change a setting
+  across all nodes, same threshold everywhere.
   Do NOT use for: general SQL queries, general Python data analysis,
   Airflow/Prefect/dbt pipelines, or ad-hoc data exploration.
 ---
@@ -446,6 +448,39 @@ Only the `def transform(sources, params, outputs)` function is extracted from th
 - Source nodes: rejected with error (no transform to export)
 - Existing notebook on export: overwritten with warning
 - No changes detected on import: skipped with message
+
+## Project Settings (ddag_settings.py)
+
+**Recognize this need when the user says:** "global parameter", "global variable", "shared constant", "project-wide setting", "same value across nodes", "change this threshold everywhere", "use the same X in all nodes", "pipeline settings", or refers to a value that multiple nodes should agree on. When you detect this intent, check for an existing `ddag_settings.py` in the project root — create one if absent, or add the new field if it exists.
+
+A project can have a `ddag_settings.py` file in the project root — a plain Python module that defines shared configuration as a frozen dataclass. This is optional but recommended when multiple nodes share parameters that must stay in sync.
+
+Example `ddag_settings.py`:
+```python
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Settings:
+    min_cohort_size: int = 30
+    confidence_level: float = 0.95
+
+settings = Settings()
+```
+
+**Accessing settings in transform code:**
+```python
+def transform(sources, params, outputs):
+    from ddag_settings import settings
+    # settings.min_cohort_size, settings.confidence_level, etc.
+```
+
+Settings are completely separate from node-local `params` — no namespace collisions. The frozen dataclass prevents accidental mutation. Since it's a regular Python file in the project directory, it works in the project's Python environment with no path manipulation.
+
+**When to use settings:** Parameters that should be the same across multiple nodes — analysis thresholds, shared constants, study-wide settings. If changing the value on one node would require changing it everywhere, put it in settings.
+
+**When to use node-local params:** Parameters that are intentionally different per node — dataset names, output formats, node-specific filters.
+
+**Creating/updating settings:** Create or edit `ddag_settings.py` directly in the project root. The LLM manages this file — adding new fields when nodes need shared configuration, updating values when the user requests changes.
 
 ## Anti-patterns
 

@@ -1084,6 +1084,109 @@ def test_marimo_check_fix_round_trip(tmp):
     print("PASS")
 
 
+def test_settings_no_file(tmp):
+    """Test 37: Transform using ddag_settings fails when no settings file exists."""
+    print("Test 37: Settings — no file present...", end=" ")
+    try:
+        import polars  # noqa: F401
+    except ImportError:
+        print("SKIP (polars not installed)")
+        return
+
+    # Create a node whose transform imports ddag_settings
+    ddag_path = os.path.join(tmp, "with_settings.ddag")
+    ddag_core.create_compute_node(
+        ddag_path,
+        "Node that uses project settings",
+        source_paths=["visits.csv"],
+        output_paths=["settings_out.parquet"],
+        function_body='''def transform(sources, params, outputs):
+    from ddag_settings import settings
+    import polars as pl
+    df = pl.read_csv(sources['visits'])
+    df = df.head(settings.max_rows)
+    df.write_parquet(outputs['settings_out'])
+''',
+        transform_plan="Read visits.csv, limit to settings.max_rows rows, write to parquet.",
+    )
+
+    # Ensure no ddag_settings module is cached or importable from tmp
+    settings_path = os.path.join(tmp, "ddag_settings.py")
+    if os.path.exists(settings_path):
+        os.remove(settings_path)
+    sys.modules.pop("ddag_settings", None)
+
+    # Build should fail because ddag_settings.py doesn't exist
+    try:
+        ddag_build.build_nodes(tmp, node_filter="with_settings.ddag")
+        assert False, "Should have raised due to missing ddag_settings"
+    except Exception as e:
+        assert "ddag_settings" in str(e) or "No module named" in str(e), f"Unexpected error: {e}"
+
+    # Clean up
+    os.remove(ddag_path)
+    output_path = os.path.join(tmp, "settings_out.parquet")
+    if os.path.exists(output_path):
+        os.remove(output_path)
+    print("PASS")
+
+
+def test_settings_with_file(tmp):
+    """Test 38: Transform using ddag_settings works when settings file exists."""
+    print("Test 38: Settings — file present...", end=" ")
+    try:
+        import polars  # noqa: F401
+    except ImportError:
+        print("SKIP (polars not installed)")
+        return
+
+    # Create ddag_settings.py in the project root (tmp)
+    settings_path = os.path.join(tmp, "ddag_settings.py")
+    with open(settings_path, "w") as f:
+        f.write('''\
+from dataclasses import dataclass
+
+@dataclass(frozen=True)
+class Settings:
+    max_rows: int = 3
+
+settings = Settings()
+''')
+
+    # Create a node that imports settings
+    ddag_path = os.path.join(tmp, "with_settings.ddag")
+    ddag_core.create_compute_node(
+        ddag_path,
+        "Node that uses project settings",
+        source_paths=["visits.csv"],
+        output_paths=["settings_out.parquet"],
+        function_body='''def transform(sources, params, outputs):
+    from ddag_settings import settings
+    import polars as pl
+    df = pl.read_csv(sources['visits'])
+    df = df.head(settings.max_rows)
+    df.write_parquet(outputs['settings_out'])
+''',
+        transform_plan="Read visits.csv, limit to settings.max_rows rows, write to parquet.",
+    )
+
+    # Build should succeed
+    built = ddag_build.build_nodes(tmp, node_filter="with_settings.ddag")
+    assert "with_settings.ddag" in built, "Node should have built successfully"
+
+    # Verify output: visits.csv has 5 rows, max_rows=3 so output should have 3
+    import polars as pl
+    df = pl.read_parquet(os.path.join(tmp, "settings_out.parquet"))
+    assert len(df) == 3, f"Expected 3 rows (settings.max_rows), got {len(df)}"
+
+    # Clean up
+    os.remove(ddag_path)
+    os.remove(os.path.join(tmp, "settings_out.parquet"))
+    os.remove(settings_path)
+    sys.modules.pop("ddag_settings", None)
+    print("PASS")
+
+
 def test_marimo_empty_dicts(tmp):
     """Test 35: Notebook generation handles empty dicts."""
     print("Test 35: Marimo empty dicts...", end=" ")
@@ -1132,6 +1235,8 @@ def main():
         test_sourceless_compute_stale_yesterday(tmp)
         test_force_stale_default(tmp)
         test_transform_plan_required(tmp)
+        test_settings_no_file(tmp)
+        test_settings_with_file(tmp)
         test_marimo_generate_notebook(tmp)
         test_marimo_source_node_rejection(tmp)
         test_marimo_round_trip(tmp)

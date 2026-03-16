@@ -233,6 +233,7 @@ def generate_build_script(stale_nodes, nodes, root_dir="."):
         '"""Auto-generated ddag build script."""',
         "import sys, os",
         f"os.chdir({str(root)!r})",
+        f"sys.path.insert(0, {str(root)!r})",
         "",
     ]
 
