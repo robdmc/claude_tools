@@ -150,11 +150,23 @@ The `--yes` flag skips the interactive confirmation prompt (required in non-inte
 
 An audit has three steps — structural check via CLI, LLM critique via node-auditor agents, and a DRY scan across transforms. **Always do all three.**
 
-1. **Get review packets:**
+1. **Get the node list** via `summary`:
+   ```bash
+   python $CLI summary $ROOT
+   ```
+   This returns the list of compute nodes without loading any transform code. Note the total node count.
+
+2. **Structural drift check** via CLI:
    - Single node: `python $CLI audit --node <path> $ROOT --json`
    - Whole DAG: `python $CLI audit $ROOT --json`
+   Check the `drift` field for schema drift. You do **not** need to read the full `review_packets` from this output — the node-auditor agents will fetch their own packets.
 
-2. **Spawn `node-auditor` agents** — one per review packet in the result's `review_packets` array. Pass the full packet (inputs, transform code, transform plan, parameters, outputs, drift) as the agent prompt. Each agent checks:
+3. **Spawn `node-auditor` agents** — one per compute node. Pass each agent only:
+   - The **node path** (e.g., `create_episodes_from_claims.ddag`)
+   - The **CLI path**: `{SKILL_DIR}/scripts/ddag_build.py`
+   - The **project root**: `.` (or the appropriate root)
+
+   Each agent fetches its own review packet via `audit --node` and performs six checks:
    - Transform plan vs code — does the code implement what the plan describes?
    - Input consistency — does the code use all declared sources and parameters?
    - Output consistency — do output/column descriptions match what the code produces?
@@ -162,11 +174,13 @@ An audit has three steps — structural check via CLI, LLM critique via node-aud
    - Cross-node consistency — are column semantics preserved across node boundaries?
    - Cross-cutting — is the node description accurate?
 
-3. **Run agents in parallel** for 4+ nodes. For 1–3 nodes, sequential is fine.
+   **Do NOT pre-fetch review packets and pass them as prompts.** This avoids loading all transform code into the main conversation context.
 
-4. **DRY scan** (whole-DAG audits only): After collecting agent results, scan all transform code for duplicated logic, repeated hardcoded values, and similar patterns that could be extracted into shared modules or `ddag_settings.py`. See `references/shared-code.md` § DRY Audit for what to flag and how to present it.
+4. **Run agents in parallel** for 4+ nodes. For 1–3 nodes, sequential is fine.
 
-5. **Present results:** Each agent returns `CONSISTENT` or `INCONSISTENT` with specific issues. Surface any inconsistencies to the user for resolution (fix code via `set_function` or fix metadata via `set_output_description`/`set_column_descriptions`). Append DRY opportunities as a separate section after the per-node results.
+5. **DRY scan** (whole-DAG audits only): After collecting agent results, use `show --node <path>` or `dump-function --node <path>` to read transform code for comparison. **Never use sqlite3 or raw SQL to read .ddag files.** Scan for duplicated logic, repeated hardcoded values, and similar patterns that could be extracted into shared modules or `ddag_settings.py`. See `references/shared-code.md` § DRY Audit for what to flag and how to present it.
+
+6. **Present results:** Each agent returns `CONSISTENT` or `INCONSISTENT` with specific issues. Surface any inconsistencies to the user for resolution (fix code via `set_function` or fix metadata via `set_description`/`set_output_description`/`set_column_descriptions`). Append DRY opportunities as a separate section after the per-node results.
 
 The CLI `audit` command alone only checks structural metadata (drift, missing descriptions). The node-auditor agent is what reviews plan-to-code consistency — **always spawn it**.
 

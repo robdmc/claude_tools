@@ -36,6 +36,7 @@ ddag_core.get_transform_plan(ddag_path)                  # → str or None
 ddag_core.is_active(ddag_path)                         # → bool
 
 # Modification
+ddag_core.set_description(ddag_path, description)                 # update the node-level description
 ddag_core.set_function(ddag_path, function_body, transform_plan)  # function_body MUST start with def transform(...); validated at build time not here
 ddag_core.update_output_stats(ddag_path, output_path, row_count, col_count)
 ddag_core.set_output_description(ddag_path, output_path, description)

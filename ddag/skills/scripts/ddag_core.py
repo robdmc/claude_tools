@@ -179,6 +179,19 @@ def set_function(ddag_path, function_body, transform_plan):
         db.close()
 
 
+def set_description(ddag_path, description):
+    """Update the node-level description."""
+    db = connect(ddag_path)
+    try:
+        with db:
+            db.execute(
+                "UPDATE script_info SET description = ? WHERE id = 1",
+                (description,),
+            )
+    finally:
+        db.close()
+
+
 def get_transform_plan(ddag_path):
     """Read the transform plan from a node. Returns the plan string or None."""
     db = connect(ddag_path)
