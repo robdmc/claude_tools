@@ -178,7 +178,7 @@ An audit has three steps — structural check via CLI, LLM critique via node-aud
 
 4. **Run agents in parallel** for 4+ nodes. For 1–3 nodes, sequential is fine.
 
-5. **DRY scan** (whole-DAG audits only): After collecting agent results, use `show --node <path>` or `dump-function --node <path>` to read transform code for comparison. **Never use sqlite3 or raw SQL to read .ddag files.** Scan for duplicated logic, repeated hardcoded values, and similar patterns that could be extracted into shared modules or `ddag_settings.py`. See `references/shared-code.md` § DRY Audit for what to flag and how to present it.
+5. **DRY scan** (whole-DAG audits only): Dump transforms to `.ddag_work/`, compare for duplication, clean up after. See `references/workflows.md` § DRY Scan for the full procedure.
 
 6. **Present results:** Each agent returns `CONSISTENT` or `INCONSISTENT` with specific issues. Surface any inconsistencies to the user for resolution (fix code via `set_function` or fix metadata via `set_description`/`set_output_description`/`set_column_descriptions`). Append DRY opportunities as a separate section after the per-node results.
 

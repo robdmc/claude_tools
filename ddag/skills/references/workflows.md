@@ -6,6 +6,7 @@
 - [Script Conversion](#script-conversion)
 - [Branching (Exploratory Workflows)](#branching-exploratory-workflows)
 - [DAG-wide Audit](#dag-wide-audit)
+- [DRY Scan](#dry-scan)
 - [Templating Transform Code](#templating-transform-code)
 - [Error Recovery](#error-recovery)
 
@@ -112,6 +113,35 @@ result = ddag_build.audit_descriptions('.')
 ```
 
 For small DAGs (1-3 compute nodes), running auditors sequentially is fine. For larger DAGs, always run in parallel.
+
+## DRY Scan
+
+The DRY scan compares transform code across all compute nodes to find duplicated logic, repeated hardcoded values, and patterns that should be extracted into shared modules or `ddag_settings.py`.
+
+### Procedure
+
+1. **Dump all transforms to `.ddag_work/`** — never to the project root:
+
+   ```bash
+   mkdir -p .ddag_work
+   python $CLI dump-function --node <node.ddag> --output .ddag_work/<node>.py $ROOT
+   # repeat for each compute node
+   ```
+
+2. **Read the dumped files** and scan for:
+   - Identical or near-identical code blocks copied across nodes
+   - The same literal value (threshold, date, column name) hardcoded in multiple transforms
+   - Boilerplate setup (imports, DB connections, path construction) repeated verbatim
+
+   See `references/shared-code.md` § DRY Audit for what to flag and how to present it.
+
+3. **Cleanup** — delete `.ddag_work/` contents immediately after presenting results (or if the scan is abandoned):
+
+   ```bash
+   rm -f .ddag_work/*.py
+   ```
+
+   `.ddag_work/` is a single-session scratch space shared with the External Code Editor. Never leave files there between sessions. If files from a previous session are found at the start of a DRY scan, delete them before proceeding.
 
 ## Templating Transform Code
 

@@ -258,15 +258,24 @@ def set_output_description(ddag_path, output_path, description):
         db.close()
 
 
-def set_column_descriptions(ddag_path, output_path, col_descriptions):
+def set_column_descriptions(ddag_path, output_path, col_descriptions, replace=False):
     """Upsert column descriptions for an output file. col_descriptions: {name: description}.
 
-    Merges with existing descriptions — only the keys present in col_descriptions
+    By default, merges with existing descriptions — only the keys present in col_descriptions
     are inserted or updated. Existing columns not in col_descriptions are left unchanged.
+
+    If replace=True, all existing column descriptions for this output are deleted first,
+    so the result contains exactly the columns in col_descriptions and nothing else.
+    Use this after a schema change that removed columns.
     """
     db = connect(ddag_path)
     try:
         with db:
+            if replace:
+                db.execute(
+                    "DELETE FROM output_columns WHERE output_path = ?",
+                    (output_path,),
+                )
             for name, desc in col_descriptions.items():
                 db.execute(
                     "INSERT INTO output_columns (output_path, name, description) VALUES (?, ?, ?)"

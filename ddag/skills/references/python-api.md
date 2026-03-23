@@ -40,7 +40,7 @@ ddag_core.set_description(ddag_path, description)                 # update the n
 ddag_core.set_function(ddag_path, function_body, transform_plan)  # function_body MUST start with def transform(...); validated at build time not here
 ddag_core.update_output_stats(ddag_path, output_path, row_count, col_count)
 ddag_core.set_output_description(ddag_path, output_path, description)
-ddag_core.set_column_descriptions(ddag_path, output_path, col_descriptions)  # col_descriptions = {'col_name': 'description', ...}
+ddag_core.set_column_descriptions(ddag_path, output_path, col_descriptions, replace=False)  # col_descriptions = {'col_name': 'description', ...}; replace=True deletes all existing columns first
 ddag_core.remove_source(ddag_path, source_path)
 ddag_core.remove_output(ddag_path, output_path)
 
