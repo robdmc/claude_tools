@@ -278,9 +278,20 @@ def generate_build_script(stale_nodes, nodes, root_dir="."):
     header = [
         "#!/usr/bin/env python3",
         '"""Auto-generated ddag build script."""',
-        "import sys, os",
+        "import sys, os, logging, time",
         f"os.chdir({str(root)!r})",
         f"sys.path.insert(0, {str(root)!r})",
+        "",
+        "def _ddag_logger(name):",
+        "    logger = logging.getLogger(name)",
+        "    if not logger.handlers:",
+        "        handler = logging.StreamHandler()",
+        '        handler.setFormatter(logging.Formatter(',
+        "            '%(asctime)s [%(process)d] %(levelname)-8s %(name)s: %(message)s',",
+        "            datefmt='%Y-%m-%d %H:%M:%S'))",
+        "        logger.addHandler(handler)",
+        "        logger.setLevel(logging.INFO)",
+        "    return logger",
         "",
     ]
 
@@ -311,8 +322,12 @@ def generate_build_script(stale_nodes, nodes, root_dir="."):
         fn_defs.append(renamed_body)
         fn_defs.append("")
 
+        node_stem = Path(node_path).stem
+        main_calls.append(f"    _log = _ddag_logger({node_stem!r})")
+        main_calls.append(f"    _log.info('Starting transform')")
+        main_calls.append(f"    _t0 = time.time()")
         main_calls.append(f"    {fn_name}(sources={sources!r}, params={params!r}, outputs={outputs!r})")
-        main_calls.append(f"    print('Built: {node_path}')")
+        main_calls.append(f"    _log.info('Completed in %.1fs', time.time() - _t0)")
 
     # Assemble: header, function defs, main(), guard
     lines = header + fn_defs

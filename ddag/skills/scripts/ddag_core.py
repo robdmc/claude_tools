@@ -231,7 +231,8 @@ def load_function(ddag_path, transform_plan, input_path=None):
     """
     if input_path is None:
         stem = Path(ddag_path).stem
-        input_path = f"_ddag_{stem}.py"
+        work_dir = Path(ddag_path).parent / ".ddag_work"
+        input_path = str(work_dir / f"_ddag_{stem}.py")
     body = Path(input_path).read_text().rstrip("\n")
     set_function(ddag_path, body, transform_plan)
     return input_path

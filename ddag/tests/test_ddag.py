@@ -495,9 +495,10 @@ def test_dump_and_load_function(tmp):
     node_path = os.path.join(tmp, "clean_visits.ddag")
     original = ddag_core.read_node(node_path)["transform_function"]
 
-    # Dump to default path
+    # Dump to default path (lands in .ddag_work/ next to the node)
     out_file = ddag_core.dump_function(node_path)
-    assert out_file == "_ddag_clean_visits.py"
+    expected = os.path.join(tmp, ".ddag_work", "_ddag_clean_visits.py")
+    assert out_file == expected, f"Expected {expected}, got {out_file}"
     assert os.path.exists(out_file)
     content = open(out_file).read()
     assert "def transform(" in content
