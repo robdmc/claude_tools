@@ -217,7 +217,9 @@ def dump_function(ddag_path, output_path=None):
         raise ValueError(f"{ddag_path} is a source node (no transform function)")
     if output_path is None:
         stem = Path(ddag_path).stem
-        output_path = f"_ddag_{stem}.py"
+        work_dir = Path(ddag_path).parent / ".ddag_work"
+        work_dir.mkdir(exist_ok=True)
+        output_path = str(work_dir / f"_ddag_{stem}.py")
     Path(output_path).write_text(body + "\n")
     return output_path
 
