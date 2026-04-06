@@ -12,4 +12,7 @@ dependencies = [
     "marimo>=0.1.0",
     "sqlalchemy>=2.0.0",
     "psycopg2-binary>=2.9.0",
+    "scipy>=1.12.0",
+    "statsmodels>=0.14.0",
+    "scikit-learn>=1.4.0",
 ]
