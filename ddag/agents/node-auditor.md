@@ -18,7 +18,7 @@ You audit a single ddag compute node for consistency between its transform plan,
 You will be given a **node path** and a **CLI location**. Fetch the review packet yourself:
 
 ```bash
-python {CLI} audit --node {NODE_PATH} --root {ROOT} --json
+uv run --project {SCRIPTS_DIR} python {CLI} audit --node {NODE_PATH} --root {ROOT} --json
 ```
 
 Parse the JSON output. The `review_packets` array will contain exactly one entry — that's your packet.

@@ -21,6 +21,10 @@ description: >
   across all nodes, same threshold everywhere.
   Do NOT use for: general SQL queries, general Python data analysis,
   Airflow/Prefect/dbt pipelines, or ad-hoc data exploration.
+allowed-tools: >
+  Read, Write, Glob, Grep,
+  Bash(uv run --project {SKILL_DIR}/scripts python *),
+  Bash
 ---
 
 # ddag Skill
@@ -41,7 +45,14 @@ description: >
 
 ### Python API (REQUIRED for all node operations)
 
+All Python — both CLI commands and API calls — runs through uv to use the bundled dependencies:
+
+```bash
+UV="uv run --project {SKILL_DIR}/scripts"
+```
+
 ```python
+# In Bash(uv run --project {SKILL_DIR}/scripts python -c "..."):
 import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); import ddag_core; import ddag_build
 ```
 
@@ -56,42 +67,43 @@ For read-only inspection, prefer CLI commands (see CLI Quick Reference below).
 ### CLI Quick Reference
 
 ```bash
+UV="uv run --project {SKILL_DIR}/scripts"
 CLI="{SKILL_DIR}/scripts/ddag_build.py"
 ROOT="--root ."
 
 # DAG-wide
-python $CLI summary $ROOT
-python $CLI summary --include-inactive $ROOT
-python $CLI status $ROOT
-python $CLI status --include-inactive $ROOT
-python $CLI stale $ROOT
-python $CLI build $ROOT
-python $CLI audit $ROOT
-python $CLI audit --node path/to/node.ddag $ROOT   # single-node audit
-python $CLI diagram $ROOT -o diagram.png
+$UV python $CLI summary $ROOT
+$UV python $CLI summary --include-inactive $ROOT
+$UV python $CLI status $ROOT
+$UV python $CLI status --include-inactive $ROOT
+$UV python $CLI stale $ROOT
+$UV python $CLI build $ROOT
+$UV python $CLI audit $ROOT
+$UV python $CLI audit --node path/to/node.ddag $ROOT   # single-node audit
+$UV python $CLI diagram $ROOT -o diagram.png
 
 # Per-node inspection
-python $CLI show --node path/to/node.ddag $ROOT    # full node metadata as JSON
+$UV python $CLI show --node path/to/node.ddag $ROOT    # full node metadata as JSON
 
 # Per-node operations
-python $CLI build --node path/to/node.ddag $ROOT
-python $CLI lineage --node path/to/node.ddag $ROOT
-python $CLI dump-function --node path/to/node.ddag $ROOT
-python $CLI load-function --node path/to/node.ddag --plan "Updated plan text" $ROOT
+$UV python $CLI build --node path/to/node.ddag $ROOT
+$UV python $CLI lineage --node path/to/node.ddag $ROOT
+$UV python $CLI dump-function --node path/to/node.ddag $ROOT
+$UV python $CLI load-function --node path/to/node.ddag --plan "Updated plan text" $ROOT
 
 # File lookup
-python $CLI file-context --file path/to/data.parquet $ROOT
+$UV python $CLI file-context --file path/to/data.parquet $ROOT
 
 # JSON output (for programmatic use)
-python $CLI stale --json $ROOT
-python $CLI build --json $ROOT
-python $CLI audit --json $ROOT
+$UV python $CLI stale --json $ROOT
+$UV python $CLI build --json $ROOT
+$UV python $CLI audit --json $ROOT
 
 # Build script generation
-python $CLI script $ROOT > _ddag_build.py
+$UV python $CLI script $ROOT > _ddag_build.py
 
 # Cleanup
-python $CLI clean $ROOT --yes   # Delete all compute node outputs (use --yes to skip interactive prompt)
+$UV python $CLI clean $ROOT --yes   # Delete all compute node outputs (use --yes to skip interactive prompt)
 ```
 
 ## What is a Node
@@ -110,7 +122,7 @@ For the full SQLite schema, see `references/schema.md`.
 
 ### Bare `/ddag` (no arguments)
 
-1. Run `summary --include-inactive` (`python $CLI summary --include-inactive $ROOT`) — this single call returns everything needed: node list in topological order, descriptions, output paths, node types (source/compute), staleness, and inactive nodes.
+1. Run `summary --include-inactive` (`$UV python $CLI summary --include-inactive $ROOT`) — this single call returns everything needed: node list in topological order, descriptions, output paths, node types (source/compute), staleness, and inactive nodes.
 2. Branch on the result:
 
 **No nodes found** — Tell the user there's no pipeline yet. Ask how to start:
@@ -126,7 +138,7 @@ For the full SQLite schema, see `references/schema.md`.
 
 ### `/ddag diagram`
 
-Run `diagram` (`python $CLI diagram $ROOT -o diagram.png`). Display the resulting PNG. If `dot` is not installed, show the `.dot` source as a code block and tell the user to install Graphviz (`brew install graphviz`).
+Run `diagram` (`$UV python $CLI diagram $ROOT -o diagram.png`). Display the resulting PNG. If `dot` is not installed, show the `.dot` source as a code block and tell the user to install Graphviz (`brew install graphviz`).
 
 ### "Build the pipeline file" / "Build the execution script"
 
@@ -139,7 +151,7 @@ Trigger on: "build the pipeline file", "build the pipeline", "compile the pipeli
 Delete all output files produced by **compute nodes** while leaving source node files untouched.
 
 ```bash
-python $CLI clean $ROOT --yes
+$UV python $CLI clean $ROOT --yes
 ```
 
 The `--yes` flag skips the interactive confirmation prompt (required in non-interactive environments). The command lists files to delete, then deletes them. Source node outputs are never touched.
@@ -152,18 +164,19 @@ An audit has three steps — structural check via CLI, LLM critique via node-aud
 
 1. **Get the node list** via `summary`:
    ```bash
-   python $CLI summary $ROOT
+   $UV python $CLI summary $ROOT
    ```
    This returns the list of compute nodes without loading any transform code. Note the total node count.
 
 2. **Structural drift check** via CLI:
-   - Single node: `python $CLI audit --node <path> $ROOT --json`
-   - Whole DAG: `python $CLI audit $ROOT --json`
+   - Single node: `$UV python $CLI audit --node <path> $ROOT --json`
+   - Whole DAG: `$UV python $CLI audit $ROOT --json`
    Check the `drift` field for schema drift. You do **not** need to read the full `review_packets` from this output — the node-auditor agents will fetch their own packets.
 
 3. **Spawn `node-auditor` agents** — one per compute node. Pass each agent only:
    - The **node path** (e.g., `create_episodes_from_claims.ddag`)
    - The **CLI path**: `{SKILL_DIR}/scripts/ddag_build.py`
+   - The **scripts directory**: `{SKILL_DIR}/scripts`
    - The **project root**: `.` (or the appropriate root)
 
    Each agent fetches its own review packet via `audit --node` and performs six checks:
@@ -206,12 +219,12 @@ The CLI `audit` command alone only checks structural metadata (drift, missing de
 Behavior depends on the file type.
 
 **Data file** (`.csv`, `.parquet`):
-1. Run `file-context` (`python $CLI file-context --file <path> $ROOT`)
+1. Run `file-context` (`$UV python $CLI file-context --file <path> $ROOT`)
 2. **If found in DAG** — present which node produces/consumes it, lineage chain, staleness, and column descriptions. Ask what to do next.
 3. **If not found** — tell the user it's untracked. Offer to wrap as a source node (Checkpoint 1 → create → Checkpoint 2).
 
 **Image/artifact file** (`.png`, `.svg`, `.pdf`):
-1. Run `file-context` (`python $CLI file-context --file <path> $ROOT`)
+1. Run `file-context` (`$UV python $CLI file-context --file <path> $ROOT`)
 2. **If found in DAG** — present which node produces it, lineage chain, staleness, and output description. Display the image if it's a PNG/SVG. Ask what to do next.
 3. **If not found** — tell the user it's untracked. (Do not offer to wrap as a source node — generated artifacts are compute outputs.)
 
@@ -224,14 +237,14 @@ Walk the user through converting a script into a compute node. See `references/w
 
 When dropped into a project with existing .ddag files:
 
-1. Run `summary --include-inactive` (`python $CLI summary --include-inactive $ROOT`) — one call gives you nodes, types, outputs, staleness, and descriptions
-2. Use `python $CLI show --node <path> $ROOT` only for nodes you need to inspect in detail (transform code, plan, column metadata)
+1. Run `summary --include-inactive` (`$UV python $CLI summary --include-inactive $ROOT`) — one call gives you nodes, types, outputs, staleness, and descriptions
+2. Use `$UV python $CLI show --node <path> $ROOT` only for nodes you need to inspect in detail (transform code, plan, column metadata)
 
 ## Explaining a Node's Logic
 
 When the user asks how a node works, what its logic is, what it does, or anything semantically similar — respond with three parts in this order:
 
-1. **Purpose** (1-2 sentences): Why this node exists — what job it does for the pipeline. Focus on the *why*, not the plumbing. Don't just say what feeds it or consumes it (the user can see that from the table); instead explain the analytical role it plays. Use `python $CLI show --node <path> $ROOT` metadata (description, sources, outputs, downstream consumers) to infer purpose.
+1. **Purpose** (1-2 sentences): Why this node exists — what job it does for the pipeline. Focus on the *why*, not the plumbing. Don't just say what feeds it or consumes it (the user can see that from the table); instead explain the analytical role it plays. Use `$UV python $CLI show --node <path> $ROOT` metadata (description, sources, outputs, downstream consumers) to infer purpose.
 
 2. **Transform plan (verbatim)**: Present the node's `transform_plan` exactly as stored, word-for-word. Format it for readability (line breaks, bullet points) but **do not change, omit, or rephrase any content**. Do NOT use blockquote (`>`) formatting — it renders dimmed in terminals. Use regular markdown instead. This is the audited source of truth. The `show` command includes `transform_plan` in its JSON output.
 
@@ -324,7 +337,7 @@ After any modification, run the staleness/build workflow to rebuild affected nod
 
 1. Delete the .ddag file from disk
 2. Check whether other nodes reference its output paths as sources — update or remove dangling references
-3. Run `status` (`python $CLI status $ROOT`) to verify the DAG is still valid
+3. Run `status` (`$UV python $CLI status $ROOT`) to verify the DAG is still valid
 
 ## Branching (Exploratory Workflows)
 
@@ -336,9 +349,9 @@ The most common action: tweak a transform and see results.
 
 **In-conversation editing** (three-step loop):
 
-1. Read the current plan: `python $CLI show --node <path> $ROOT` (the `transform_plan` field in the JSON output)
+1. Read the current plan: `$UV python $CLI show --node <path> $ROOT` (the `transform_plan` field in the JSON output)
 2. Update the function and plan together: `ddag_core.set_function(path, new_body, updated_plan)` — revise the existing plan to reflect the code changes. **The updated plan must use the same structured bullet format as Checkpoint 1b** (Inputs/Steps/Edge cases/Output for data nodes; Inputs/Chart design/Styling/Output for viz nodes). If the existing plan is prose, reformat it into the structured format while incorporating the changes.
-3. `python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .`
+3. `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .`
 
 **External editor** (vim in iTerm2): Opens the node's code in vim in a new terminal window. See "External Code Editor" section below.
 
@@ -384,18 +397,16 @@ def transform(sources, params, outputs):
 
 Staleness is makefile-like: a compute node is stale if never built, if its function was updated after the last build, or if any upstream output was rebuilt more recently. Source nodes are never stale.
 
-Before the first build, verify that required Python packages (e.g., polars, pandas, duckdb) are available in the user's Python environment.
-
 **Preferred — use the `build` command** (handles everything in one step):
 
 ```bash
-python {SKILL_DIR}/scripts/ddag_build.py build --root .
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py build --root .
 ```
 
 This finds stale nodes, executes transforms, updates output stats, and prints sample rows. Output stats (row_count, col_count) are auto-detected for CSV and Parquet files only. Visualization outputs (`.png`, `.svg`, `.pdf`) will not have stats — this is expected.
 
 **Manual alternative** (when you need the build script as a file):
-1. Run `python $CLI script $ROOT > _ddag_build.py` to generate the build script
+1. Run `$UV python $CLI script $ROOT > _ddag_build.py` to generate the build script
 2. Execute `_ddag_build.py` (ephemeral, gitignored)
 3. Update output stats with `ddag_build.update_output_stats_after_build()`
 
@@ -416,7 +427,7 @@ Open a node's transform code in vim in a new iTerm2 window for hands-on editing,
 **Invocation:**
 
 ```python
-subprocess.run([sys.executable, '{SKILL_DIR}/scripts/ddag_edit.py', '<node_path>', '--root', '.'])
+subprocess.run(['uv', 'run', '--project', '{SKILL_DIR}/scripts', 'python', '{SKILL_DIR}/scripts/ddag_edit.py', '<node_path>', '--root', '.'])
 ```
 
 **What happens:**
@@ -430,7 +441,7 @@ subprocess.run([sys.executable, '{SKILL_DIR}/scripts/ddag_edit.py', '<node_path>
 **After the user returns from editing:** The iTerm2 window handles the full commit workflow. If the user committed changes, the node's function is already updated. Run a build to execute the updated transform:
 
 ```bash
-python {SKILL_DIR}/scripts/ddag_build.py build --node <node_path> --root .
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py build --node <node_path> --root .
 ```
 
 **Error cases:**
@@ -447,7 +458,7 @@ Export a node's transform function to a Marimo notebook for interactive experime
 **Export:**
 
 ```python
-subprocess.run([sys.executable, '{SKILL_DIR}/scripts/ddag_marimo.py', node_path, '--root', '.'])
+subprocess.run(['uv', 'run', '--project', '{SKILL_DIR}/scripts', 'python', '{SKILL_DIR}/scripts/ddag_marimo.py', node_path, '--root', '.'])
 ```
 
 Creates `<stem>.ddag.nb.py` in the working directory with three cells: imports, transform function, and a run cell pre-populated with the node's sources/params/outputs dicts. On first export, fetches marimo docs to `.claude/prompts/marimo.md` in the working project.
@@ -457,7 +468,7 @@ After export, tell the user to run `marimo edit <stem>.ddag.nb.py` to open the n
 **Import (after user edits):**
 
 ```python
-subprocess.run([sys.executable, '{SKILL_DIR}/scripts/ddag_marimo.py', node_path, '--import', '--root', '.'])
+subprocess.run(['uv', 'run', '--project', '{SKILL_DIR}/scripts', 'python', '{SKILL_DIR}/scripts/ddag_marimo.py', node_path, '--import', '--root', '.'])
 ```
 
 Only the `def transform(sources, params, outputs)` function is extracted from the notebook — all other cells are ignored. The existing `transform_plan` is preserved; the user/agent updates it separately if needed. After import, build the node to execute the updated transform.

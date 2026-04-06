@@ -1,6 +1,6 @@
 # ddag CLI Reference
 
-All commands: `python {SKILL_DIR}/scripts/ddag_build.py <command> --root .`
+All commands: `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py <command> --root .`
 
 Run `--help` for full details on any command. Use the CLI for inspection and information gathering. For node mutations (create, modify, branch), use the Python API (`references/python-api.md`).
 
@@ -25,7 +25,7 @@ Run `--help` for full details on any command. Use the CLI for inspection and inf
 
 ### Marimo Notebook Commands
 
-Separate script: `python {SKILL_DIR}/scripts/ddag_marimo.py`
+Separate script: `uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_marimo.py`
 
 | Command | Purpose | Key flags |
 |---------|---------|-----------|
@@ -182,31 +182,31 @@ Downstream lineage for node.ddag:
 
 ```bash
 # Build everything stale
-python {SKILL_DIR}/scripts/ddag_build.py build --root .
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py build --root .
 
 # Build a single node (with upstream if needed)
-python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .
 
 # Dump → edit → load → build cycle
-python {SKILL_DIR}/scripts/ddag_build.py dump-function --node path/to/node.ddag --root .
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py dump-function --node path/to/node.ddag --root .
 # ... user edits _ddag_{stem}.py ...
-python {SKILL_DIR}/scripts/ddag_build.py load-function --node path/to/node.ddag --plan "Updated plan describing the new logic" --root .
-python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py load-function --node path/to/node.ddag --plan "Updated plan describing the new logic" --root .
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .
 ```
 
 ```bash
 # Delete all compute outputs (prompts for confirmation)
-python {SKILL_DIR}/scripts/ddag_build.py clean --root .
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py clean --root .
 ```
 
 ```bash
 # Export a node to a Marimo notebook for interactive editing
-python {SKILL_DIR}/scripts/ddag_marimo.py path/to/node.ddag --root .
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_marimo.py path/to/node.ddag --root .
 # ... user runs: marimo edit node.ddag.nb.py ...
 # Import changes back
-python {SKILL_DIR}/scripts/ddag_marimo.py path/to/node.ddag --import --root .
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_marimo.py path/to/node.ddag --import --root .
 # Build the updated node
-python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .
+uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py build --node path/to/node.ddag --root .
 ```
 
 If any CLI command fails (non-zero exit or traceback), show the error to the user and investigate before continuing.

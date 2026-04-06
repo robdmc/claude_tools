@@ -64,7 +64,7 @@ Reference files are loaded into context on demand. Keep them accurate and in syn
 ## Testing
 
 ```bash
-python ddag/tests/test_ddag.py
+uv run --project ddag/skills/scripts python ddag/tests/test_ddag.py
 ```
 
 All tests run in a temp directory and clean up after themselves. Tests cover: node creation, DAG assembly, staleness detection, build execution, cycle detection, metadata descriptions, branching, conflict detection, force-stale propagation, sourceless compute nodes, dump/load round-trips, and build script parsing.

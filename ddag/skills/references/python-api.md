@@ -1,5 +1,7 @@
 # Python API Reference
 
+All Python API calls must run via uv: `uv run --project {SKILL_DIR}/scripts python -c "..."`
+
 ```python
 import sys; sys.path.insert(0, '{SKILL_DIR}/scripts'); import ddag_core; import ddag_build
 

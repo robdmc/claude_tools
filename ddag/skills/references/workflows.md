@@ -17,7 +17,7 @@ The `.ddag` abstraction is for **incremental tinkering**. Once tinkering is done
 ### Generate the build script
 
 1. If multiple disconnected DAGs exist and it's ambiguous which one the user means, **ask**.
-2. Run: `python $CLI script --all $ROOT`
+2. Run: `$UV python $CLI script --all $ROOT`
 3. Save the output to `_ddag_build.py` in the project root.
 4. Show the user what was generated (node count, file path).
 
@@ -124,7 +124,7 @@ The DRY scan compares transform code across all compute nodes to find duplicated
 
    ```bash
    mkdir -p .ddag_work
-   python $CLI dump-function --node <node.ddag> --output .ddag_work/<node>.py $ROOT
+   $UV python $CLI dump-function --node <node.ddag> --output .ddag_work/<node>.py $ROOT
    # repeat for each compute node
    ```
 
