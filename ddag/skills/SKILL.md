@@ -411,6 +411,14 @@ uv run --project {SKILL_DIR}/scripts python {SKILL_DIR}/scripts/ddag_build.py bu
 
 This finds stale nodes, executes transforms, updates output stats, and prints sample rows. Output stats (row_count, col_count) are auto-detected for CSV and Parquet files only. Visualization outputs (`.png`, `.svg`, `.pdf`) will not have stats — this is expected.
 
+**Logging convention for long-running builds:** When running `build` in the background (`run_in_background: true`) or whenever the build is non-trivial (more than a few fast nodes), tee stdout/stderr to a log file and surface the `tail -f` command to the user so they can follow progress. Pick a log name that identifies the DAG so multiple concurrent builds don't collide — e.g. `/tmp/ddag_build_<project-slug>.log`, or `/tmp/ddag_build_<project-slug>_<subdag>.log` when building a sub-DAG. Pattern:
+
+```bash
+<build command> 2>&1 | tee /tmp/ddag_build_<slug>.log
+```
+
+Then tell the user: "Follow progress with `tail -f /tmp/ddag_build_<slug>.log`." Skip the tee for trivial rebuilds where the whole run finishes before the user would reasonably want to tail.
+
 **Manual alternative** (when you need the build script as a file):
 1. Run `$UV python $CLI script $ROOT > _ddag_build.py` to generate the build script
 2. Execute `_ddag_build.py` (ephemeral, gitignored)
@@ -496,6 +504,19 @@ def transform(sources, params, outputs):
     from ddag_settings import settings
     # settings.min_group_size, settings.confidence_level, etc.
 ```
+
+## Sub-DAG Boundaries (`.ddag_root`)
+
+A ddag project is marked by a `.ddag_root` sentinel file at its top level (empty file, just `touch .ddag_root`). When present, node discovery respects nested ddag projects: any subdirectory that contains its own `.ddag_root` is treated as a separate ddag and is **not** descended into by the parent's scan.
+
+**Use when:** a project contains a logically distinct nested pipeline that should be built independently (e.g. a `cache/` sub-pipeline that downloads raw data, consumed file-level by the analysis pipeline above it).
+
+**How it works:**
+- `ddag ... --root .` at the project root discovers everything *except* subtrees marked by their own `.ddag_root`.
+- `ddag ... --root cache` points directly at the sub-DAG and sees only its own nodes.
+- If the root's `.ddag_root` is absent, discovery falls back to flat-recursive (legacy behavior) — existing projects without the marker are unaffected.
+
+**Setup:** `touch .ddag_root` at each ddag project's top level. Check the marker into git.
 
 ## Anti-patterns
 

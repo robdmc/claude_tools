@@ -12,16 +12,35 @@ def scan_nodes(root_dir=".", include_inactive=False):
     """Find all .ddag files under root_dir and return {path: node_metadata}.
 
     By default, only active nodes are returned. Set include_inactive=True to get all.
+
+    Sub-DAG boundary: if `.ddag_root` exists at `root_dir`, the scan treats any
+    subdirectory containing its own `.ddag_root` as a separate ddag project and
+    does not descend into it. This lets nested ddag projects (e.g. a `cache/`
+    sub-pipeline) stay independent of the parent. If `.ddag_root` is absent at
+    `root_dir`, the scan is flat-recursive (legacy behavior) — existing
+    projects without the marker are unaffected.
     """
+    import os
+
     root = Path(root_dir)
     nodes = {}
-    for ddag_file in root.rglob("*.ddag"):
-        if not ddag_file.is_file():
-            continue
-        rel = str(ddag_file.relative_to(root))
-        meta = ddag_core.read_node(str(ddag_file))
-        if include_inactive or meta.get("is_active", True):
-            nodes[rel] = meta
+    boundary_enforced = (root / ".ddag_root").exists()
+
+    for dirpath, dirnames, filenames in os.walk(root):
+        current = Path(dirpath)
+        if boundary_enforced:
+            # Prune subdirs that are their own ddag root (never prune `root` itself).
+            dirnames[:] = [d for d in dirnames if not (current / d / ".ddag_root").exists()]
+        for fn in filenames:
+            if not fn.endswith(".ddag"):
+                continue
+            ddag_file = current / fn
+            if not ddag_file.is_file():
+                continue
+            rel = str(ddag_file.relative_to(root))
+            meta = ddag_core.read_node(str(ddag_file))
+            if include_inactive or meta.get("is_active", True):
+                nodes[rel] = meta
     return nodes
 
 
