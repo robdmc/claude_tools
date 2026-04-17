@@ -179,6 +179,26 @@ def set_function(ddag_path, function_body, transform_plan):
         db.close()
 
 
+def set_transform_plan(ddag_path, transform_plan):
+    """Update only the transform_plan, leaving function_body and updated_at unchanged.
+
+    Does NOT bump updated_at — plan-only edits don't invalidate a prior build, so
+    this won't force downstream rebuilds. For plan changes that accompany a code
+    change, use set_function() instead so the build is correctly re-invalidated.
+    """
+    if not transform_plan:
+        raise ValueError("transform_plan must be non-empty")
+    db = connect(ddag_path)
+    try:
+        with db:
+            db.execute(
+                "UPDATE transform_function SET transform_plan = ? WHERE id = 1",
+                (transform_plan,),
+            )
+    finally:
+        db.close()
+
+
 def set_description(ddag_path, description):
     """Update the node-level description."""
     db = connect(ddag_path)
@@ -289,12 +309,45 @@ def set_column_descriptions(ddag_path, output_path, col_descriptions, replace=Fa
         db.close()
 
 
+def remove_column_description(ddag_path, output_path, name):
+    """Remove one or more column descriptions for an output file.
+
+    `name` may be a single column-name string or an iterable of column names.
+    Silently no-ops for columns that aren't present.
+    """
+    names = [name] if isinstance(name, str) else list(name)
+    if not names:
+        return
+    db = connect(ddag_path)
+    try:
+        with db:
+            placeholders = ",".join("?" for _ in names)
+            db.execute(
+                f"DELETE FROM output_columns WHERE output_path = ? AND name IN ({placeholders})",
+                (output_path, *names),
+            )
+    finally:
+        db.close()
+
+
 def remove_source(ddag_path, source_path):
     """Remove a source path from a node."""
     db = connect(ddag_path)
     try:
         with db:
             db.execute("DELETE FROM sources WHERE path = ?", (source_path,))
+    finally:
+        db.close()
+
+
+def rename_source(ddag_path, old_path, new_path):
+    """Rename a source path. Raises if new_path already exists on this node."""
+    db = connect(ddag_path)
+    try:
+        with db:
+            if db.execute("SELECT 1 FROM sources WHERE path = ?", (new_path,)).fetchone():
+                raise ValueError(f"Source {new_path!r} already exists on this node")
+            db.execute("UPDATE sources SET path = ? WHERE path = ?", (new_path, old_path))
     finally:
         db.close()
 
@@ -306,6 +359,25 @@ def remove_output(ddag_path, output_path):
         with db:
             db.execute("DELETE FROM output_columns WHERE output_path = ?", (output_path,))
             db.execute("DELETE FROM outputs WHERE path = ?", (output_path,))
+    finally:
+        db.close()
+
+
+def rename_output(ddag_path, old_path, new_path):
+    """Rename an output path, preserving its description, stats, and column descriptions.
+
+    Raises if new_path already exists on this node.
+    """
+    db = connect(ddag_path)
+    try:
+        with db:
+            if db.execute("SELECT 1 FROM outputs WHERE path = ?", (new_path,)).fetchone():
+                raise ValueError(f"Output {new_path!r} already exists on this node")
+            db.execute("UPDATE outputs SET path = ? WHERE path = ?", (new_path, old_path))
+            db.execute(
+                "UPDATE output_columns SET output_path = ? WHERE output_path = ?",
+                (new_path, old_path),
+            )
     finally:
         db.close()
 
@@ -343,6 +415,69 @@ def get_outputs_dict(ddag_path):
             key = f"{p.parent.name}_{p.stem}"
         result[key] = row["path"]
     return result
+
+
+def set_parameter(ddag_path, name, *, type=None, default=None, value=None, description=None):
+    """Upsert a single parameter.
+
+    For an existing parameter, only the fields you pass are updated — unset
+    fields are preserved. For a new parameter, `type` defaults to 'str' and
+    the remaining fields default to NULL.
+
+    Use this instead of re-calling create_compute_node() when you only need
+    to add, update, or tweak one parameter.
+    """
+    db = connect(ddag_path)
+    try:
+        with db:
+            existing = db.execute(
+                "SELECT 1 FROM parameters WHERE name = ?", (name,)
+            ).fetchone()
+            if existing is None:
+                db.execute(
+                    "INSERT INTO parameters (name, type, default_value, current_value, description) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (name, type or "str", default, value, description),
+                )
+            else:
+                updates, vals = [], []
+                if type is not None:
+                    updates.append("type = ?"); vals.append(type)
+                if default is not None:
+                    updates.append("default_value = ?"); vals.append(default)
+                if value is not None:
+                    updates.append("current_value = ?"); vals.append(value)
+                if description is not None:
+                    updates.append("description = ?"); vals.append(description)
+                if updates:
+                    vals.append(name)
+                    db.execute(
+                        f"UPDATE parameters SET {', '.join(updates)} WHERE name = ?",
+                        vals,
+                    )
+    finally:
+        db.close()
+
+
+def remove_parameter(ddag_path, name):
+    """Remove one or more parameters from a node.
+
+    `name` may be a single parameter-name string or an iterable of names.
+    Silently no-ops for names that aren't present.
+    """
+    names = [name] if isinstance(name, str) else list(name)
+    if not names:
+        return
+    db = connect(ddag_path)
+    try:
+        with db:
+            placeholders = ",".join("?" for _ in names)
+            db.execute(
+                f"DELETE FROM parameters WHERE name IN ({placeholders})",
+                names,
+            )
+    finally:
+        db.close()
 
 
 def get_params_dict(ddag_path):

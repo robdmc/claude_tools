@@ -327,9 +327,15 @@ User accepts all, edits specific items, or rejects.
 
 ## Modifying Existing Nodes
 
-- **Change the transform function only**: `ddag_core.set_function(path, new_body, updated_plan)` — faster than re-creating the node. Always update the plan to match the new code, using the structured bullet format from Checkpoint 1b.
-- **Add/remove sources or outputs**: Re-call `create_compute_node()` with the full updated lists. **Important:** it uses `ON CONFLICT DO NOTHING`, so it will **not** remove old entries — use `remove_source()` / `remove_output()` explicitly.
-- **Change parameters**: Re-call `create_compute_node()` with the full updated params dict.
+Prefer **surgical helpers** over re-calling `create_compute_node()` — they preserve output stats, descriptions, and `built_at`, and target individual fields. Common cases:
+
+- Code + plan change: `set_function()` — bumps `updated_at` → triggers rebuild. Always update the plan to match the new code, using the Checkpoint 1b bullet format.
+- Plan wording only (typo, clarification): `set_transform_plan()` — does **not** bump `updated_at`, so downstream nodes stay fresh.
+- One parameter: `set_parameter()` / `remove_parameter()` (name may be a single string or a list).
+- Rename a source or output path: `rename_source()` / `rename_output()` (preserves stats and column descriptions).
+- Drop stale column descriptions after a schema change: `remove_column_description()` (name may be a single string or a list).
+
+Re-call `create_compute_node()` only when bulk-reshaping the node's topology (e.g., swapping several sources/outputs at once). Full signatures in `references/python-api.md`.
 
 After any modification, run the staleness/build workflow to rebuild affected nodes.
 

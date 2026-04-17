@@ -40,11 +40,17 @@ ddag_core.is_active(ddag_path)                         # → bool
 # Modification
 ddag_core.set_description(ddag_path, description)                 # update the node-level description
 ddag_core.set_function(ddag_path, function_body, transform_plan)  # function_body MUST start with def transform(...); validated at build time not here
+ddag_core.set_transform_plan(ddag_path, transform_plan)           # plan-only update; does NOT bump updated_at, so does NOT invalidate a prior build. Use when fixing wording/typos without a code change
 ddag_core.update_output_stats(ddag_path, output_path, row_count, col_count)
 ddag_core.set_output_description(ddag_path, output_path, description)
 ddag_core.set_column_descriptions(ddag_path, output_path, col_descriptions, replace=False)  # col_descriptions = {'col_name': 'description', ...}; replace=True deletes all existing columns first
+ddag_core.remove_column_description(ddag_path, output_path, name)  # name = str or list of strs; no-ops for names not present
+ddag_core.set_parameter(ddag_path, name, *, type=None, default=None, value=None, description=None)  # upsert one param; unset fields preserved on existing params, default to NULL (type → 'str') for new
+ddag_core.remove_parameter(ddag_path, name)                       # name = str or list of strs; no-ops for names not present
 ddag_core.remove_source(ddag_path, source_path)
+ddag_core.rename_source(ddag_path, old_path, new_path)            # raises if new_path already declared on this node
 ddag_core.remove_output(ddag_path, output_path)
+ddag_core.rename_output(ddag_path, old_path, new_path)            # preserves description, row_count, col_count, built_at, and column descriptions; raises if new_path already declared
 
 # Branching & activation
 ddag_core.clone_node(src_path, dest_path)       # clone with branched_from tracking
